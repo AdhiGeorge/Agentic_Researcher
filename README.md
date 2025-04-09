@@ -1,73 +1,77 @@
-# Welcome to your Lovable project
 
-## Project info
+# Agentic AI Research Assistant
 
-**URL**: https://lovable.dev/projects/1c64f4a2-7392-4821-80ca-9448feb7351b
+## Overview
+The Agentic AI Research Assistant is a fully autonomous, modular, multi-agent research system designed for deep knowledge discovery, secure code generation, validation, and structured reporting. The system is optimized for performance, extensibility, and transparency, making it suitable for researchers, developers, analysts, and AI experimenters.
 
-## How can I edit this code?
+## Features
+- Swarm-style multi-agent coordination
+- Retrieval-augmented generation (RAG) with persistent memory
+- Dynamic tool generation and registration
+- Secure, sandboxed code execution
+- Domain-agnostic validation
+- Structured report generation with visualizations
+- Modular and scalable framework
 
-There are several ways of editing your application.
+## Setup and Installation
 
-**Use Lovable**
+### Prerequisites
+- Python 3.10+ recommended
+- Pip package manager
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/1c64f4a2-7392-4821-80ca-9448feb7351b) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+### Installation
+1. Clone this repository:
+```
+git clone https://github.com/yourusername/agentic-ai-research.git
+cd agentic-ai-research
 ```
 
-**Edit a file directly in GitHub**
+2. Install dependencies:
+```
+pip install -r requirements.txt
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+3. Create a `.env` file with your API keys:
+```
+OPENAI_API_KEY=your_api_key_here
+```
 
-**Use GitHub Codespaces**
+## Running the Application
+Start the Streamlit web interface:
+```
+python src/main.py
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+This will launch the web interface at `http://localhost:8501`.
 
-## What technologies are used for this project?
+## Usage
+1. Enter your research query in the main input field
+2. Select relevant research options (depth, academic sources, etc.)
+3. Click "Start Research" to initiate the research process
+4. View results in the various tabs (Summary, Detailed Findings, Generated Code, etc.)
 
-This project is built with:
+## Project Structure
+```
+agentic-ai-research/
+├── src/
+│   ├── agents/            # Agent implementations
+│   ├── config/            # System configuration
+│   ├── frontend/          # Streamlit UI components
+│   ├── llm/               # LLM management
+│   ├── memory/            # Persistent memory handling
+│   └── main.py            # Entry point
+├── memory/                # Stored embeddings and history
+├── outputs/               # Generated reports, code, etc.
+│   ├── code/              # Generated code outputs
+│   └── reports/           # Research reports
+└── tools/                 # Dynamic tool registry
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Configuration
+System behavior can be configured through the web interface or by editing the configuration files in `src/config/`.
 
-## How can I deploy this project?
+## Contributing
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-Simply open [Lovable](https://lovable.dev/projects/1c64f4a2-7392-4821-80ca-9448feb7351b) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes it is!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.
