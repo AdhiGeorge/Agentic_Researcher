@@ -4,6 +4,9 @@ import logging
 import json
 from typing import Dict, List, Any, Optional
 import numpy as np
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
+from sentence_transformers import SentenceTransformer
 
 from src.config.system_config import VectorStoreConfig
 
@@ -11,18 +14,39 @@ logger = logging.getLogger(__name__)
 
 class VectorStore:
     """
-    Vector store for embeddings.
-    This is a simplified implementation for the demo.
-    In a real system, this would use Qdrant, Chroma, or FAISS.
+    Vector store for embeddings using Qdrant.
     """
     
     def __init__(self, config: VectorStoreConfig):
         self.config = config
-        self.vectors = []
-        self.texts = []
-        self.metadata = []
+        self.model = SentenceTransformer(config.embedding_model)
         
-        # In a real implementation, this would initialize the vector DB client
+        # Initialize Qdrant client
+        if config.url:
+            # Use remote Qdrant instance
+            self.client = QdrantClient(
+                url=config.url,
+                api_key=config.api_key
+            )
+        else:
+            # Use local Qdrant instance
+            self.client = QdrantClient(location=config.location)
+        
+        # Check if collection exists, create if not
+        collections = self.client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        
+        if config.collection_name not in collection_names:
+            # Create new collection
+            self.client.create_collection(
+                collection_name=config.collection_name,
+                vectors_config=models.VectorParams(
+                    size=config.dimension,
+                    distance=models.Distance.COSINE
+                )
+            )
+            logger.info(f"Created new Qdrant collection: {config.collection_name}")
+        
         logger.info(f"Initialized vector store with embedding model: {config.embedding_model}")
     
     def add_texts(self, texts: List[str], metadatas: Optional[List[Dict[str, Any]]] = None) -> List[str]:
@@ -39,24 +63,27 @@ class VectorStore:
         if metadatas is None:
             metadatas = [{} for _ in texts]
         
-        # In a real implementation, this would embed texts and store in vector DB
-        # For this demo, we'll just store the texts and metadata
+        # Generate embeddings for all texts
+        embeddings = self.model.encode(texts, show_progress_bar=True)
         
-        ids = []
-        for i, (text, metadata) in enumerate(zip(texts, metadatas)):
-            # Generate a unique ID
-            doc_id = str(len(self.texts) + i)
-            
-            # Store text and metadata
-            self.texts.append(text)
-            self.metadata.append(metadata)
-            
-            # In a real implementation, this would generate embeddings
-            # Here we just create random vectors
-            vector = np.random.randn(self.config.dimension).tolist()
-            self.vectors.append(vector)
-            
-            ids.append(doc_id)
+        # Generate IDs
+        ids = [str(hash(text + str(metadata))) for text, metadata in zip(texts, metadatas)]
+        
+        # Prepare points for Qdrant
+        points = [
+            models.PointStruct(
+                id=id,
+                vector=embedding.tolist(),
+                payload={"text": text, **metadata}
+            )
+            for id, text, embedding, metadata in zip(ids, texts, embeddings, metadatas)
+        ]
+        
+        # Upload to Qdrant
+        self.client.upsert(
+            collection_name=self.config.collection_name,
+            points=points
+        )
         
         logger.info(f"Added {len(texts)} texts to vector store")
         return ids
@@ -72,41 +99,43 @@ class VectorStore:
         Returns:
             List of dictionaries with text, score, and metadata
         """
-        if not self.texts:
+        if not self.client.collection_exists(self.config.collection_name):
+            logger.warning(f"Collection {self.config.collection_name} does not exist")
             return []
         
-        # In a real implementation, this would:
-        # 1. Embed the query
-        # 2. Perform vector similarity search
-        # 3. Return the most similar documents
+        # Generate embedding for query
+        query_embedding = self.model.encode(query)
         
-        # For this demo, we'll just return random texts with similarity scores
-        import random
+        # Perform search
+        search_results = self.client.search(
+            collection_name=self.config.collection_name,
+            query_vector=query_embedding.tolist(),
+            limit=k
+        )
         
-        # Get at most k results (or fewer if we don't have enough texts)
-        k = min(k, len(self.texts))
-        
-        # Get random indices
-        indices = random.sample(range(len(self.texts)), k)
-        
-        # Create result objects
+        # Format results
         results = []
-        for idx in indices:
-            results.append({
-                "text": self.texts[idx],
-                "score": random.uniform(0.7, 0.99),  # Random similarity score
-                "metadata": self.metadata[idx]
-            })
-        
-        # Sort by score
-        results.sort(key=lambda x: x["score"], reverse=True)
+        for res in search_results:
+            result = {
+                "text": res.payload.get("text", ""),
+                "score": res.score,
+                "metadata": {k: v for k, v in res.payload.items() if k != "text"}
+            }
+            results.append(result)
         
         logger.info(f"Returning {len(results)} results for query: {query[:30]}...")
         return results
     
     def clear(self):
         """Clear the vector store"""
-        self.vectors = []
-        self.texts = []
-        self.metadata = []
-        logger.info("Vector store cleared")
+        if self.client.collection_exists(self.config.collection_name):
+            self.client.delete_collection(self.config.collection_name)
+            # Recreate the empty collection
+            self.client.create_collection(
+                collection_name=self.config.collection_name,
+                vectors_config=models.VectorParams(
+                    size=self.config.dimension,
+                    distance=models.Distance.COSINE
+                )
+            )
+            logger.info("Vector store cleared")

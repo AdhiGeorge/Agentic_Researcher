@@ -7,6 +7,7 @@ from src.frontend.components.header import render_header
 from src.frontend.components.query_input import render_query_input
 from src.frontend.components.results_display import render_results
 from src.frontend.components.agent_status import render_agent_status
+from src.frontend.components.swarm_visualizer import render_swarm_visualizer
 from src.frontend.state import initialize_session_state
 
 def run_app():
@@ -52,6 +53,11 @@ def run_app():
     with col2:
         # Agent status display
         render_agent_status()
+        
+        # Swarm visualizer (if in debug mode)
+        if st.session_state.get('debug_mode', False) and st.session_state.get('current_result'):
+            if 'swarm_visualization' in st.session_state.current_result:
+                render_swarm_visualizer(st.session_state.current_result['swarm_visualization'])
     
     # Display results
     if st.session_state.get('current_result'):

@@ -22,3 +22,9 @@ def initialize_session_state():
     
     if 'debug_mode' not in st.session_state:
         st.session_state.debug_mode = False
+        
+    if 'swarm_visualization' not in st.session_state:
+        st.session_state.swarm_visualization = None
+        
+    if 'show_agent_communication' not in st.session_state:
+        st.session_state.show_agent_communication = False
