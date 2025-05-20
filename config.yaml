@@ -1,0 +1,78 @@
+# Agentic Researcher Configuration
+
+api_keys:
+  # OpenAI API Configuration
+  OPENAI_API_KEY: "" # Will be loaded from .env
+  OPENAI_MODEL: "gpt-4o"
+  OPENAI_EMBEDDING_MODEL: "text-embedding-3-large"
+  
+  # Azure OpenAI API Configuration (Optional)
+  AZURE_OPENAI_API_KEY: "" # Will be loaded from .env
+  AZURE_OPENAI_ENDPOINT: "" # Will be loaded from .env
+  AZURE_OPENAI_DEPLOYMENT: "" # Will be loaded from .env
+  AZURE_OPENAI_EMBEDDING_DEPLOYMENT: "text-embedding-3-large"
+  AZURE_API_VERSION: "2024-08-01-preview"
+
+  # Web Search API Keys
+  TAVILY_API_KEY: "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"
+  GOOGLE_API_KEY: "AIzaSyATbsFgbbci8T_mJ5wtfPAROfWFd-DhQ4c"
+  GOOGLE_CSE_ID: "e37191c870ec64043"
+
+model_settings:
+  # Model context windows
+  GPT3_CONTEXT_WINDOW: 4096
+  GPT4_CONTEXT_WINDOW: 8192
+  GPT4O_CONTEXT_WINDOW: 128000  # GPT-4o has a much larger context window
+  EMBEDDING_DIMENSIONS: 3072  # text-embedding-3-large dimensions
+  EMBEDDING_DIMENSIONS_SMALL: 1536  # text-embedding-3-small dimensions
+  CHUNK_SIZE: 400  # Token size for text chunks
+  CHUNK_OVERLAP: 50  # Token overlap between chunks
+
+database:
+  # Qdrant Vector Database settings
+  QDRANT_HOST: "localhost"
+  QDRANT_PORT: 6333
+  QDRANT_COLLECTION_RAW: "raw_data"
+  QDRANT_COLLECTION_CHUNKS: "preprocessed_chunks"
+
+  # SQLite settings
+  SQLITE_PATH: "agentic_researcher.db"
+
+search:
+  # Search engine priority order
+  PRIMARY_SEARCH_ENGINE: "duckduckgo"
+  SECONDARY_SEARCH_ENGINE: "tavily"
+  TERTIARY_SEARCH_ENGINE: "google"
+  RESULTS_PER_SEARCH: 10
+  MAX_SEARCH_RETRIES: 3
+
+scraping:
+  # Playwright settings
+  HEADLESS: true
+  TIMEOUT: 30000  # ms
+  SLOW_MO: 0  # ms for debugging
+  USER_AGENT_ROTATION: true
+  RESPECT_ROBOTS_TXT: true
+  RETRY_ATTEMPTS: 3
+  RETRY_DELAY: 2  # seconds
+  
+  # User agents for rotation
+  USER_AGENTS:
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    - "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15"
+    - "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36"
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36 Edg/92.0.902.84"
+    - "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0"
+
+paths:
+  # Project paths
+  PROJECTS_DIR: "./projects"
+  LOGS_DIR: "./logs"
+  TEMP_DIR: "./temp"
+  SCRAPED_DATA_DIR: "./scraped_data"
+  PROCESSED_DATA_DIR: "./processed_data"
+  WEB_LINKS_DIR: "./web_links"
+
+system:
+  DEBUG: false
+  LOG_LEVEL: "INFO"

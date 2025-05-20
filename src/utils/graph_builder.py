@@ -1,0 +1,544 @@
+"""
+Knowledge Graph Builder for Agentic Researcher
+
+This module implements a knowledge graph builder that extracts entities from research content
+and builds a semantic graph to represent relationships between concepts.
+"""
+
+import logging
+import networkx as nx
+from typing import Dict, List, Any, Optional, Tuple, Set
+import spacy
+from spacy.tokens import Doc
+import json
+
+# For visualization if needed
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = None
+
+
+class KnowledgeGraphBuilder:
+    """
+    Knowledge Graph Builder for constructing and managing semantic knowledge graphs.
+    
+    This class extracts named entities and key concepts from text, builds relationships
+    between them, and provides methods for graph pruning and retrieval.
+    
+    Attributes:
+        logger (logging.Logger): Logger for the graph builder
+        nlp (spacy.Language): SpaCy NLP model for entity recognition
+        qdrant_manager: Qdrant database manager for vector storage
+        graph (nx.Graph): NetworkX graph for representing the knowledge structure
+        entities (Dict[str, Dict]): Dictionary of extracted entities with metadata
+    """
+    
+    def __init__(self, qdrant_manager=None):
+        """Initialize the KnowledgeGraphBuilder.
+        
+        Args:
+            qdrant_manager: Qdrant database manager for storing vectors
+        """
+        self.logger = logging.getLogger("utils.graph_builder")
+        
+        # Initialize SpaCy for entity extraction
+        try:
+            self.nlp = spacy.load("en_core_web_md")
+            self.logger.info("Loaded SpaCy model: en_core_web_md")
+        except:
+            self.logger.warning("SpaCy model not found, downloading...")
+            # Download a smaller model as fallback
+            spacy.cli.download("en_core_web_sm")
+            self.nlp = spacy.load("en_core_web_sm")
+            self.logger.info("Loaded SpaCy model: en_core_web_sm")
+        
+        # Reference to the Qdrant manager
+        self.qdrant_manager = qdrant_manager
+        
+        # Initialize graph data structures
+        self.graph = nx.Graph()
+        self.entities = {}
+        
+        self.logger.info("KnowledgeGraphBuilder initialized")
+    
+    def process_text(self, text: str, source_id: str, metadata: Dict = None) -> List[Dict]:
+        """Process text to extract entities and relationships.
+        
+        Args:
+            text (str): The text to process
+            source_id (str): Identifier for the source document
+            metadata (Dict, optional): Additional metadata. Defaults to None.
+            
+        Returns:
+            List[Dict]: List of extracted entities with metadata
+        """
+        if not text or len(text) < 10:
+            self.logger.warning(f"Text too short to process: {len(text) if text else 0} chars")
+            return []
+        
+        metadata = metadata or {}
+        self.logger.info(f"Processing text from source {source_id}: {len(text)} chars")
+        
+        # Process with SpaCy
+        doc = self.nlp(text)
+        
+        # Extract entities
+        entities = self._extract_entities(doc, source_id, metadata)
+        
+        # Build relationships between entities
+        self._build_relationships(entities, doc)
+        
+        # Store in Qdrant if available
+        if self.qdrant_manager:
+            self._store_entities_in_qdrant(entities, source_id)
+        
+        return entities
+    
+    def _extract_entities(self, doc: Doc, source_id: str, metadata: Dict) -> List[Dict]:
+        """Extract named entities and key concepts from the document.
+        
+        Args:
+            doc (Doc): SpaCy document
+            source_id (str): Source identifier
+            metadata (Dict): Additional metadata
+            
+        Returns:
+            List[Dict]: Extracted entities
+        """
+        entities = []
+        
+        # Extract named entities
+        for ent in doc.ents:
+            entity_id = f"{ent.text.lower().replace(' ', '_')}_{ent.label_}"
+            
+            # Create or update entity
+            if entity_id not in self.entities:
+                entity = {
+                    "id": entity_id,
+                    "text": ent.text,
+                    "type": ent.label_,
+                    "sources": [source_id],
+                    "metadata": metadata.copy(),
+                    "count": 1
+                }
+                self.entities[entity_id] = entity
+                
+                # Add to graph
+                self.graph.add_node(entity_id, **entity)
+            else:
+                # Update existing entity
+                entity = self.entities[entity_id]
+                entity["count"] += 1
+                if source_id not in entity["sources"]:
+                    entity["sources"].append(source_id)
+                
+                # Update graph node
+                self.graph.nodes[entity_id]["count"] = entity["count"]
+                self.graph.nodes[entity_id]["sources"] = entity["sources"]
+            
+            entities.append(entity)
+        
+        # Extract key noun phrases as concepts
+        for chunk in doc.noun_chunks:
+            if len(chunk.text) > 3 and chunk.root.pos_ in ("NOUN", "PROPN"):
+                concept_id = f"concept_{chunk.text.lower().replace(' ', '_')}"
+                
+                # Create or update concept
+                if concept_id not in self.entities:
+                    concept = {
+                        "id": concept_id,
+                        "text": chunk.text,
+                        "type": "CONCEPT",
+                        "sources": [source_id],
+                        "metadata": metadata.copy(),
+                        "count": 1
+                    }
+                    self.entities[concept_id] = concept
+                    
+                    # Add to graph
+                    self.graph.add_node(concept_id, **concept)
+                else:
+                    # Update existing concept
+                    concept = self.entities[concept_id]
+                    concept["count"] += 1
+                    if source_id not in concept["sources"]:
+                        concept["sources"].append(source_id)
+                    
+                    # Update graph node
+                    self.graph.nodes[concept_id]["count"] = concept["count"]
+                    self.graph.nodes[concept_id]["sources"] = concept["sources"]
+                
+                entities.append(concept)
+        
+        self.logger.debug(f"Extracted {len(entities)} entities from source {source_id}")
+        return entities
+    
+    def _build_relationships(self, entities: List[Dict], doc: Doc) -> None:
+        """Build relationships between entities based on co-occurrence and syntax.
+        
+        Args:
+            entities (List[Dict]): List of extracted entities
+            doc (Doc): SpaCy document
+        """
+        # If no entities, nothing to do
+        if not entities:
+            return
+        
+        # Map entities to their sentence indices
+        entity_sentences = {}
+        for sent_idx, sent in enumerate(doc.sents):
+            for ent in sent.ents:
+                entity_id = f"{ent.text.lower().replace(' ', '_')}_{ent.label_}"
+                if entity_id not in entity_sentences:
+                    entity_sentences[entity_id] = []
+                entity_sentences[entity_id].append(sent_idx)
+        
+        # Connect entities that appear in the same sentence
+        entity_ids = [entity["id"] for entity in entities]
+        for i, entity1_id in enumerate(entity_ids):
+            if entity1_id not in entity_sentences:
+                continue
+                
+            sent_indices1 = entity_sentences[entity1_id]
+            
+            for j in range(i+1, len(entity_ids)):
+                entity2_id = entity_ids[j]
+                if entity2_id not in entity_sentences:
+                    continue
+                    
+                sent_indices2 = entity_sentences[entity2_id]
+                
+                # Find common sentences
+                common_sents = set(sent_indices1).intersection(set(sent_indices2))
+                
+                if common_sents:
+                    # Create or update edge
+                    if not self.graph.has_edge(entity1_id, entity2_id):
+                        self.graph.add_edge(
+                            entity1_id, 
+                            entity2_id, 
+                            weight=len(common_sents),
+                            type="co-occurrence"
+                        )
+                    else:
+                        # Increase weight for existing relationship
+                        self.graph[entity1_id][entity2_id]["weight"] += len(common_sents)
+    
+    def _store_entities_in_qdrant(self, entities: List[Dict], source_id: str) -> None:
+        """Store entities in Qdrant with relationships as metadata.
+        
+        Args:
+            entities (List[Dict]): Entities to store
+            source_id (str): Source identifier
+        """
+        if not self.qdrant_manager or not entities:
+            return
+        
+        try:
+            # For each entity, store its connections as metadata
+            for entity in entities:
+                entity_id = entity["id"]
+                
+                # Get all neighbors
+                if entity_id in self.graph:
+                    neighbors = list(self.graph.neighbors(entity_id))
+                    
+                    # Add neighbor data to metadata
+                    entity_metadata = entity.copy()
+                    entity_metadata["connected_entities"] = neighbors
+                    entity_metadata["source_id"] = source_id
+                    
+                    # Store in Qdrant
+                    # This assumes text_embedding method exists in qdrant_manager
+                    if hasattr(self.qdrant_manager, "text_embedding"):
+                        self.qdrant_manager.text_embedding(
+                            text=entity["text"],
+                            metadata=entity_metadata,
+                            collection="entities"
+                        )
+        except Exception as e:
+            self.logger.error(f"Error storing entities in Qdrant: {str(e)}")
+    
+    def prune_graph_for_query(self, query: str, max_nodes: int = 50) -> nx.Graph:
+        """Prune the knowledge graph to include only nodes relevant to the query.
+        
+        Args:
+            query (str): The query to use for pruning
+            max_nodes (int, optional): Maximum number of nodes to include. Defaults to 50.
+            
+        Returns:
+            nx.Graph: Pruned graph
+        """
+        if not self.graph or self.graph.number_of_nodes() == 0:
+            self.logger.warning("Graph is empty, nothing to prune")
+            return nx.Graph()
+        
+        # Process query with SpaCy
+        query_doc = self.nlp(query)
+        
+        # Extract key entities and concepts from the query
+        query_entities = []
+        for ent in query_doc.ents:
+            query_entities.append(ent.text.lower())
+        
+        for chunk in query_doc.noun_chunks:
+            if chunk.root.pos_ in ("NOUN", "PROPN"):
+                query_entities.append(chunk.text.lower())
+        
+        # Score nodes by relevance to query
+        node_scores = {}
+        for node_id, node_data in self.graph.nodes(data=True):
+            score = 0
+            node_text = node_data.get("text", "").lower()
+            
+            # Check for exact matches
+            for query_entity in query_entities:
+                if query_entity in node_text or node_text in query_entity:
+                    score += 5
+            
+            # Add score based on node centrality
+            score += self.graph.degree(node_id)
+            
+            # Add score based on frequency
+            score += node_data.get("count", 0)
+            
+            node_scores[node_id] = score
+        
+        # Sort nodes by score
+        sorted_nodes = sorted(node_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        # Take top N nodes
+        top_nodes = [node_id for node_id, _ in sorted_nodes[:max_nodes]]
+        
+        # Create subgraph with these nodes
+        pruned_graph = self.graph.subgraph(top_nodes).copy()
+        
+        self.logger.info(f"Pruned graph from {self.graph.number_of_nodes()} to {pruned_graph.number_of_nodes()} nodes")
+        return pruned_graph
+    
+    def get_relevant_entities(self, query: str, limit: int = 10) -> List[Dict]:
+        """Get entities most relevant to the query.
+        
+        Args:
+            query (str): The query text
+            limit (int, optional): Maximum number of entities to return. Defaults to 10.
+            
+        Returns:
+            List[Dict]: List of relevant entities with metadata
+        """
+        # Process query
+        query_doc = self.nlp(query)
+        
+        # Extract query entities and keywords
+        query_terms = set()
+        for ent in query_doc.ents:
+            query_terms.add(ent.text.lower())
+        
+        for token in query_doc:
+            if token.pos_ in ("NOUN", "PROPN", "VERB", "ADJ"):
+                query_terms.add(token.lemma_.lower())
+        
+        # Score all entities
+        entity_scores = []
+        for entity_id, entity_data in self.entities.items():
+            score = 0
+            entity_text = entity_data["text"].lower()
+            
+            # Score exact matches
+            for term in query_terms:
+                if term in entity_text or entity_text in term:
+                    score += 3
+            
+            # Add centrality score
+            if entity_id in self.graph:
+                score += len(list(self.graph.neighbors(entity_id)))
+            
+            # Add frequency score
+            score += entity_data.get("count", 0)
+            
+            entity_scores.append((entity_id, score))
+        
+        # Sort by score
+        sorted_entities = sorted(entity_scores, key=lambda x: x[1], reverse=True)
+        
+        # Get top entities
+        result = []
+        for entity_id, score in sorted_entities[:limit]:
+            entity = self.entities[entity_id].copy()
+            entity["relevance_score"] = score
+            result.append(entity)
+        
+        return result
+    
+    def visualize_graph(self, graph=None, output_file=None):
+        """Visualize the knowledge graph.
+        
+        Args:
+            graph (nx.Graph, optional): Graph to visualize. If None, uses the full graph.
+            output_file (str, optional): Output file path. Defaults to None.
+        """
+        if plt is None:
+            self.logger.warning("Matplotlib not available for visualization")
+            return
+        
+        # Use provided graph or full graph
+        g = graph if graph is not None else self.graph
+        
+        if g.number_of_nodes() == 0:
+            self.logger.warning("Graph is empty, nothing to visualize")
+            return
+        
+        # Set up colors based on entity types
+        colors = []
+        node_types = nx.get_node_attributes(g, "type")
+        for node in g.nodes():
+            node_type = node_types.get(node, "")
+            if "PERSON" in node_type:
+                colors.append("lightblue")
+            elif "ORG" in node_type:
+                colors.append("lightgreen")
+            elif "GPE" in node_type or "LOC" in node_type:
+                colors.append("lightcoral")
+            elif "CONCEPT" in node_type:
+                colors.append("lightyellow")
+            else:
+                colors.append("gray")
+        
+        # Set up node sizes based on centrality
+        sizes = []
+        for node in g.nodes():
+            degree = g.degree(node)
+            sizes.append(100 + (degree * 20))
+        
+        # Create plot
+        plt.figure(figsize=(12, 8))
+        pos = nx.spring_layout(g, seed=42)
+        nx.draw_networkx(
+            g, pos, 
+            with_labels=True, 
+            node_color=colors,
+            node_size=sizes,
+            font_size=8,
+            width=0.5,
+            alpha=0.8
+        )
+        
+        # Save or show
+        if output_file:
+            plt.savefig(output_file)
+            self.logger.info(f"Graph visualization saved to {output_file}")
+        else:
+            plt.show()
+    
+    def serialize(self, path: str = None) -> Dict:
+        """Serialize the graph to JSON format.
+        
+        Args:
+            path (str, optional): Path to save the serialized graph. Defaults to None.
+            
+        Returns:
+            Dict: Serialized graph data
+        """
+        # Convert graph to serializable format
+        nodes = [
+            {**self.graph.nodes[node]} for node in self.graph.nodes()
+        ]
+        
+        edges = [
+            {
+                "source": u,
+                "target": v,
+                **self.graph[u][v]
+            } for u, v in self.graph.edges()
+        ]
+        
+        data = {
+            "nodes": nodes,
+            "edges": edges,
+            "entity_count": len(self.entities)
+        }
+        
+        # Save to file if path provided
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            self.logger.info(f"Graph serialized to {path}")
+        
+        return data
+    
+    def deserialize(self, data: Dict = None, path: str = None) -> None:
+        """Deserialize a graph from JSON format.
+        
+        Args:
+            data (Dict, optional): Serialized graph data. Defaults to None.
+            path (str, optional): Path to load serialized graph from. Defaults to None.
+        """
+        if path and not data:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        
+        if not data:
+            self.logger.error("No data provided for deserialization")
+            return
+        
+        # Create new graph
+        self.graph = nx.Graph()
+        self.entities = {}
+        
+        # Add nodes
+        for node_data in data["nodes"]:
+            node_id = node_data.pop("id", None)
+            if node_id:
+                self.graph.add_node(node_id, **node_data)
+                self.entities[node_id] = node_data
+        
+        # Add edges
+        for edge_data in data["edges"]:
+            source = edge_data.pop("source", None)
+            target = edge_data.pop("target", None)
+            if source and target:
+                self.graph.add_edge(source, target, **edge_data)
+        
+        self.logger.info(f"Graph deserialized with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges")
+
+
+# Example usage
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    
+    # Create graph builder
+    graph_builder = KnowledgeGraphBuilder()
+    
+    # Example text
+    text = """
+    The Volatility Index (VIX) is a real-time market index that represents the market's expectation 
+    of 30-day forward-looking volatility. Derived from the price inputs of the S&P 500 index options, 
+    it provides a measure of market risk and investors' sentiments. It is also known as the 'Fear Index' 
+    or 'Fear Gauge'. The VIX was created by the Chicago Board Options Exchange (CBOE) and is maintained 
+    by Cboe Global Markets. It is an important measure of market risk and is often used to gauge the 
+    level of fear, stress, or risk in the market.
+    """
+    
+    # Process text
+    entities = graph_builder.process_text(text, "vix_intro")
+    
+    # Print extracted entities
+    print(f"Extracted {len(entities)} entities:")
+    for entity in entities[:5]:  # Show first 5
+        print(f"  - {entity['text']} ({entity['type']})")
+    
+    # Show graph stats
+    print(f"\nGraph has {graph_builder.graph.number_of_nodes()} nodes and {graph_builder.graph.number_of_edges()} edges")
+    
+    # Get entities relevant to a query
+    query = "How is the VIX calculated?"
+    relevant = graph_builder.get_relevant_entities(query, limit=5)
+    
+    print(f"\nTop 5 entities for query '{query}':")
+    for entity in relevant:
+        print(f"  - {entity['text']} (Score: {entity['relevance_score']})")
+    
+    # Visualize if matplotlib is available
+    if plt:
+        graph_builder.visualize_graph()

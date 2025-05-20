@@ -1,0 +1,55 @@
+# Python virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# Environment variables and secrets
+.env
+.env.local
+*.env
+
+# Python compiled files
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Project specific directories
+logs/
+temp/
+scraped_data/*/
+processed_data/*/
+
+# SQLite database files
+*.db
+*.db-journal
+
+# Log files
+*.log
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/

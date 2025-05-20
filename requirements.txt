@@ -1,0 +1,198 @@
+aiohappyeyeballs==2.6.1
+aiohttp==3.11.18
+aiosignal==1.3.2
+altair==5.5.0
+annotated-types==0.7.0
+anyio==4.9.0
+asgiref==3.8.1
+async-timeout==4.0.3
+attrs==25.3.0
+azure-ai-ml==1.27.0
+azure-common==1.1.28
+azure-core==1.34.0
+azure-core-tracing-opentelemetry==1.0.0b12
+azure-identity==1.22.0
+azure-mgmt-core==1.5.0
+azure-monitor-opentelemetry==1.6.8
+azure-monitor-opentelemetry-exporter==1.0.0b36
+azure-storage-blob==12.25.1
+azure-storage-file-datalake==12.20.0
+azure-storage-file-share==12.21.0
+beautifulsoup4==4.13.4
+blinker==1.9.0
+cachetools==5.5.2
+certifi==2025.4.26
+cffi==1.17.1
+charset-normalizer==3.4.2
+click==8.2.0
+colorama==0.4.6
+contourpy==1.3.2
+cryptography==44.0.3
+cycler==0.12.1
+dataclasses-json==0.6.7
+Deprecated==1.2.18
+distro==1.9.0
+duckduckgo_search==8.0.1
+exceptiongroup==1.3.0
+fake-useragent==2.2.0
+fixedint==0.1.6
+fonttools==4.58.0
+frozenlist==1.6.0
+gitdb==4.0.12
+GitPython==3.1.44
+greenlet==3.2.2
+grpcio==1.71.0
+h11==0.16.0
+h2==4.2.0
+hpack==4.1.0
+httpcore==1.0.9
+httpx==0.28.1
+httpx-sse==0.4.0
+hyperframe==6.1.0
+idna==3.10
+importlib_metadata==8.6.1
+iniconfig==2.1.0
+isodate==0.7.2
+Jinja2==3.1.6
+jiter==0.9.0
+jsonpatch==1.33
+jsonpointer==3.0.0
+jsonschema==4.23.0
+jsonschema-specifications==2025.4.1
+keybert==0.8.0
+kiwisolver==1.4.8
+langchain==0.3.25
+langchain-community==0.3.24
+langchain-core==0.3.59
+langchain-openai==0.3.16
+langchain-text-splitters==0.3.8
+langsmith==0.3.42
+lxml==5.4.0
+MarkupSafe==3.0.2
+marshmallow==3.26.1
+matplotlib==3.10.3
+msal==1.32.3
+msal-extensions==1.3.1
+msrest==0.7.1
+multidict==6.4.3
+mypy_extensions==1.1.0
+narwhals==1.39.0
+numpy==2.2.5
+oauthlib==3.2.2
+openai==1.78.1
+opentelemetry-api==1.31.1
+opentelemetry-instrumentation==0.52b1
+opentelemetry-instrumentation-asgi==0.52b1
+opentelemetry-instrumentation-dbapi==0.52b1
+opentelemetry-instrumentation-django==0.52b1
+opentelemetry-instrumentation-fastapi==0.52b1
+opentelemetry-instrumentation-flask==0.52b1
+opentelemetry-instrumentation-psycopg2==0.52b1
+opentelemetry-instrumentation-requests==0.52b1
+opentelemetry-instrumentation-urllib==0.52b1
+opentelemetry-instrumentation-urllib3==0.52b1
+opentelemetry-instrumentation-wsgi==0.52b1
+opentelemetry-resource-detector-azure==0.1.5
+opentelemetry-sdk==1.31.1
+opentelemetry-semantic-conventions==0.52b1
+opentelemetry-util-http==0.52b1
+orjson==3.10.18
+packaging==24.2
+pandas==2.2.3
+pdfminer.six==20250327
+pdfplumber==0.11.6
+pillow==11.2.1
+playwright==1.52.0
+pluggy==1.5.0
+portalocker==2.10.1
+primp==0.15.0
+propcache==0.3.1
+protobuf==4.25.5
+psutil==6.1.1
+pyarrow==17.0.0
+pyarrow-hotfix==0.6
+pycparser==2.22
+pydantic==2.7.1
+pydantic-core==2.18.1
+pydantic-settings==2.9.1
+pydash==8.0.5
+pydeck==0.12.1
+pyee==11.0.0
+PyJWT==2.10.1
+pyparsing==3.1.2
+pypdfium2==4.30.1
+pytest==8.0.2
+python-dateutil==2.8.2
+python-dotenv==1.1.0
+pytz==2025.3
+pywin32==301
+PyYAML==6.0.1
+qdrant-client==1.4.0
+referencing==0.36.0
+regex==2025.4.8
+reppy==0.4.14
+requests==2.31.0
+requests-oauthlib==2.0.0
+rich==13.7.1
+rpds-py==0.18.0
+scikit-learn==1.2.2
+scipy==1.10.1
+sentence-transformers==2.2.2
+six==1.16.0
+smmap==5.0.1
+sniffio==1.3.1
+soupsieve==2.5.2
+SQLAlchemy==2.0.30
+sseclient-py==1.8.0
+starlette==0.33.0
+streamlit==1.31.0
+strictyaml==1.7.3
+tenacity==8.5.0
+tensorflow==2.12.0
+thefuzz==0.20.0
+tiktoken==0.7.0
+toml==0.10.2
+tomli==2.0.1
+toolz==0.12.1
+torch==2.0.1
+tornado==6.4.1
+tqdm==4.66.5
+transformers==4.35.2
+typing-inspect==0.9.0
+typing-inspection==0.4.0
+typing_extensions==4.12.2
+tzdata==2025.3
+tzlocal==5.2
+urllib3==2.2.2
+watchdog==4.0.0
+websockets==12.0
+wrapt==1.16.0
+yarl==1.9.4
+zipp==3.15.0
+zstandard==0.23.0
+
+# Core Agentic Researcher dependencies
+azure-openai>=1.0.0,<2.0.0
+opensearch-py>=2.0.0,<3.0.0
+networkx>=3.0,<4.0  # For knowledge graph construction
+spacy>=3.5.0,<4.0.0  # For entity recognition
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.5.0/en_core_web_sm-3.5.0-py3-none-any.whl
+networkit>=10.0,<11.0  # For large-scale graph processing
+keybert>=0.7.0,<0.9.0  # For keyword extraction
+faiss-cpu>=1.7.0  # For efficient similarity search
+edlib>=1.3.0  # For string matching and similarity
+umls-lookup>=0.2.0  # For medical/scientific term resolution
+rdflib>=6.0.0  # For knowledge graph RDF support
+
+# Visualization tools
+pyvis>=0.3.0  # For network visualization
+plotly>=5.14.0  # For interactive charts
+matplotlib>=3.7.0  # For static visualizations
+
+# Swarm agent framework
+# Note: This requires Python >=3.8 and pip >=20.0
+git+https://github.com/openai/swarm.git@main#egg=swarm
+
+# Uncomment for optional GPU acceleration
+# torch==2.0.1+cu118  # For CUDA 11.8
+# tensorflow-gpu==2.12.0  # If using GPU acceleration
