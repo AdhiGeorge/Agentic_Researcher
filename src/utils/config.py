@@ -19,17 +19,17 @@ class Config:
         dotenv.load_dotenv()
         
         # Azure OpenAI API configuration
-        self.azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY", "08b98992f8ab46c39ac14597735e1f82")
-        self.azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "https://bu01azureopenai.openai.azure.com")
-        self.azure_api_version_chat = os.getenv("AZURE_API_VERSION_CHAT", "2025-01-01-preview")
-        self.azure_api_version_embeddings = os.getenv("AZURE_API_VERSION_EMBEDDINGS", "2023-05-15")
+        self.azure_openai_api_key = os.getenv("AZURE_OPENAI_API_KEY","xxxxx")
+        self.azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT","xxxxx")
+        self.azure_api_version_chat = os.getenv("AZURE_API_VERSION_CHAT","xxxxx")
+        self.azure_api_version_embeddings = os.getenv("AZURE_API_VERSION_EMBEDDINGS","xxxxx")
         self.azure_openai_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
         self.azure_openai_embedding_deployment = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
         
         # Search API configuration
-        self.google_api_key = os.getenv("GOOGLE_API_KEY", "AIzaSyATbsFgbbci8T_mJ5wtfPAROfWFd-DhQ4c")
-        self.google_cse_id = os.getenv("GOOGLE_CSE_ID", "e37191c870ec64043")
-        self.tavily_api_key = os.getenv("TAVILY_API_KEY", "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")
+        self.google_api_key = os.getenv("GOOGLE_API_KEY","xxxxx")
+        self.google_cse_id = os.getenv("GOOGLE_CSE_ID","xxxxx")
+        self.tavily_api_key = os.getenv("TAVILY_API_KEY","xxxxx")
         
         # Database configuration
         self.qdrant_url = os.getenv("QDRANT_URL", "localhost")
