@@ -18,7 +18,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 if project_root not in sys.path:
     sys.path.append(project_root)
 from src.agents.base_agent import BaseAgent
-from src.utils.config import config
+from src.utils.config import Config as config
 
 class FormatterAgent(BaseAgent):
     """Formatter agent that processes and structures raw content.

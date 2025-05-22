@@ -14,14 +14,16 @@ from typing import Dict, List, Any, Optional, Union
 from openai import AzureOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from .config import config
+# Handle both direct execution and module import scenarios
+try:
+    # When imported as a module
+    from src.utils.config import config
+except ModuleNotFoundError:
+    # When run directly as a script
+    from config import config
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-#============================================================================
-# AzureOpenAIClient Class - Primary Implementation
-#============================================================================
 
 class AzureOpenAIClient:
     """Client for Azure OpenAI API with retries and configuration management
@@ -498,15 +500,6 @@ if __name__ == "__main__":
         
         print("\nGenerated answer:")
         print(f"\"{answer}\"")
-        
-        print("\n" + "=" * 80 + "\n")
-        print("All Azure OpenAI examples completed successfully!")
-        print("These demonstrations show how to use the client for:")
-        print("  - Chat completions with different parameters")
-        print("  - Embedding generation for semantic search")
-        print("  - Building a simple retrieval-augmented generation system")
-        print("  - Both object-oriented and functional API usage")
-        print("=" * 80)
         
     except Exception as e:
         print(f"\nError in example: {str(e)}")

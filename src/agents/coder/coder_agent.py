@@ -14,7 +14,7 @@ if project_root not in sys.path:
 import re
 from typing import Dict, List, Any, Optional, Tuple
 
-from src.utils.config import config
+from src.utils.config import Config
 from src.db.sqlite_manager import SQLiteManager
 from src.db.qdrant_manager import QdrantManager
 from src.utils.openai_client import AzureOpenAIClient
@@ -28,7 +28,7 @@ class CoderAgent:
     
     def __init__(self, use_db=True):
         # Load configuration
-        self.config = config
+        self.config = Config()
         
         # Initialize databases if use_db is True (otherwise mock them for standalone execution)
         if use_db:
@@ -502,234 +502,576 @@ if __name__ == "__main__":
                   "The implementation handles option data processing, interval calculations, and weighted averages.")
     print(explanation)
     
-    # Print the generated code files
-    print("\n" + "-"*50)
-    print("GENERATED CODE:")
-    print("-"*50)
-    
-    # First file: vix_calculator.py
-    vix_calculator_content = '''import math
-import numpy as np
-import pandas as pd
-from datetime import datetime, timedelta
-
-class VIXCalculator:
-    """Calculator for the CBOE Volatility Index (VIX) using S&P 500 options data."""
-    
-    def __init__(self, risk_free_rate=0.01):
-        """Initialize the VIX calculator with a risk-free interest rate.
-        
-        Args:
-            risk_free_rate (float): Annual risk-free interest rate, default is 1%
-        """
-        self.risk_free_rate = risk_free_rate
-    
-    def calculate_vix(self, options_data, current_price, days_to_expiration=30):
-        """Calculate the VIX score based on S&P 500 options data.
-        
-        Args:
-            options_data (list): List of dictionaries containing options data with fields:
-                - 'strike': Strike price
-                - 'bid': Bid price
-                - 'ask': Ask price
-                - 'type': 'call' or 'put'
-            current_price (float): Current S&P 500 index price
-            days_to_expiration (int): Days until option expiration, default is 30
-            
-        Returns:
-            float: Calculated VIX score
-        """
-        # Convert days to years for time to expiration (T)
-        time_to_expiration = days_to_expiration / 365.0
-        
-        try:
-            # Sort options by strike price
-            sorted_options = sorted(options_data, key=lambda x: x['strike'])
-            
-            # Calculate option intervals (delta K)
-            delta_ks = self._calculate_intervals(sorted_options)
-            
-            # Exponential term for time value adjustment
-            e_rt = math.exp(self.risk_free_rate * time_to_expiration)
-            
-            # Calculate the weighted sum component
-            weighted_sum = 0
-            for i, option in enumerate(sorted_options):
-                # Skip options without interval information
-                if i not in delta_ks:
-                    continue
-                    
-                # Get strike price (K) and interval (delta K)
-                strike = option['strike']
-                delta_k = delta_ks[i]
-                
-                # Only include out-of-the-money options
-                is_otm = (option['type'] == 'call' and strike > current_price) or \
-                         (option['type'] == 'put' and strike < current_price)
-                         
-                if not is_otm:
-                    continue
-                
-                # Calculate midpoint of bid-ask spread (Q(K))
-                midpoint = (option['bid'] + option['ask']) / 2
-                if midpoint <= 0:
-                    continue  # Skip options with zero or negative midpoints
-                
-                # Apply the VIX formula component: (delta K / K^2) * e^(rT) * Q(K)
-                contribution = (delta_k / (strike**2)) * e_rt * midpoint
-                weighted_sum += contribution
-            
-            # Apply final VIX formula: 100 * sqrt(T * weighted_sum)
-            vix = 100 * math.sqrt(time_to_expiration * weighted_sum)
-            return vix
-            
-        except Exception as e:
-            raise ValueError(f"Error calculating VIX: {str(e)}")
-    
-    def _calculate_intervals(self, sorted_options):
-        """Calculate the intervals between strike prices (delta K_i).
-        
-        Args:
-            sorted_options (list): Options sorted by strike price
-            
-        Returns:
-            dict: Dictionary mapping option index to its delta K value
-        """
-        intervals = {}
-        
-        # Handle special cases for first and last options
-        if len(sorted_options) > 0:
-            # First option
-            if len(sorted_options) > 1:
-                intervals[0] = sorted_options[1]['strike'] - sorted_options[0]['strike']
-            
-            # Middle options
-            for i in range(1, len(sorted_options) - 1):
-                intervals[i] = (sorted_options[i+1]['strike'] - sorted_options[i-1]['strike']) / 2
-            
-            # Last option
-            if len(sorted_options) > 1:
-                last_idx = len(sorted_options) - 1
-                intervals[last_idx] = sorted_options[last_idx]['strike'] - sorted_options[last_idx-1]['strike']
-        
-        return intervals
-
-
-def calculate_vix_from_csv(csv_file, risk_free_rate=0.01, days_to_expiration=30):
-    """Calculate VIX from options data in a CSV file.
-    
-    Args:
-        csv_file (str): Path to CSV file with options data
-        risk_free_rate (float): Risk-free interest rate
-        days_to_expiration (int): Days to expiration
-        
-    Returns:
-        float: Calculated VIX score
-    """
-    try:
-        # Read options data from CSV
-        df = pd.read_csv(csv_file)
-        
-        # Convert DataFrame to list of dictionaries
-        options_data = df.to_dict('records')
-        
-        # Get current S&P 500 price (assuming it's in the file or could be extracted)
-        current_price = df['current_price'].iloc[0] if 'current_price' in df.columns else 4000
-        
-        # Calculate VIX
-        calculator = VIXCalculator(risk_free_rate=risk_free_rate)
-        vix = calculator.calculate_vix(
-            options_data=options_data,
-            current_price=current_price,
-            days_to_expiration=days_to_expiration
-        )
-        
-        return vix
-        
-    except Exception as e:
-        print(f"Error calculating VIX from CSV: {str(e)}")
-        return None
-
-
-# Example usage
+# Real-world example usage
 if __name__ == "__main__":
-    # Sample options data
-    sample_options = [
-        {'strike': 3900, 'bid': 15.0, 'ask': 16.0, 'type': 'put'},
-        {'strike': 3950, 'bid': 12.5, 'ask': 13.5, 'type': 'put'},
-        {'strike': 4000, 'bid': 10.0, 'ask': 11.0, 'type': 'put'},
-        {'strike': 4050, 'bid': 8.0, 'ask': 9.0, 'type': 'call'},
-        {'strike': 4100, 'bid': 10.5, 'ask': 11.5, 'type': 'call'},
-        {'strike': 4150, 'bid': 13.0, 'ask': 14.0, 'type': 'call'}
+    import time
+    import os
+    import logging
+    from datetime import datetime
+    
+    # Set up logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    print("\n" + "=" * 80)
+    print("CoderAgent - Real Example Usage")
+    print("=" * 80)
+    
+    # Initialize the CoderAgent (no DB connection for standalone example)
+    print("\nInitializing CoderAgent...")
+    coder_agent = CoderAgent(use_db=False)
+    
+    # Define a research query that we want to generate code for
+    query = "How can I create a sentiment analysis tool for social media posts?"
+    print(f"\nResearch query: '{query}'")
+    
+    # This would normally come from a planner agent
+    research_plan = {
+        "objective": "Create a Python sentiment analysis tool for social media posts",
+        "research_questions": [
+            "What NLP libraries can be used for sentiment analysis?",
+            "How to preprocess social media text data?",
+            "What machine learning approaches work best for sentiment analysis?"
+        ],
+        "expected_outputs": [
+            "Python script for sentiment analysis",
+            "Documentation on how to use it",
+            "Example with sample data"
+        ]
+    }
+    print("\nResearch plan created with objective:", research_plan["objective"])
+    
+    # Create simulated research results that would normally come from a search/research agent
+    # These are the chunks of information from different sources
+    research_chunks = [
+        {
+            "content": "The VADER (Valence Aware Dictionary and sEntiment Reasoner) library is specifically designed for social media sentiment analysis. It's part of the NLTK package and works well with text that includes emojis, slang, and informal language common in social media posts.",
+            "metadata": {"url": "https://github.com/cjhutto/vaderSentiment", "title": "VADER Sentiment Analysis"}
+        },
+        {
+            "content": "Text preprocessing for social media typically involves: removing URLs, converting to lowercase, removing stopwords, handling emojis (either removing or converting to text), and tokenization. For social media specifically, you might want to handle hashtags and mentions specially.",
+            "metadata": {"url": "https://towardsdatascience.com/preprocessing-text-data-for-nlp-5bf8688b1988", "title": "Text Preprocessing for NLP"}
+        },
+        {
+            "content": "TextBlob is another simple library that provides API for common NLP tasks including sentiment analysis. It returns polarity and subjectivity scores for text, where polarity ranges from -1 (negative) to 1 (positive).",
+            "metadata": {"url": "https://textblob.readthedocs.io/en/dev/", "title": "TextBlob Documentation"}
+        },
+        {
+            "content": "A more advanced approach to sentiment analysis involves fine-tuning transformer models like BERT, RoBERTa or DistilBERT using HuggingFace's transformers library. This requires more computational resources but provides state-of-the-art accuracy.",
+            "metadata": {"url": "https://huggingface.co/transformers/", "title": "HuggingFace Transformers"}
+        }
+    ]
+    print(f"\nCollected {len(research_chunks)} relevant research chunks")
+    
+    # Define the coding requirements
+    requirements = {
+        "language": "Python",
+        "libraries_allowed": ["nltk", "textblob", "pandas", "numpy", "matplotlib", "seaborn"],
+        "output_format": [
+            {"file_name": "sentiment_analyzer.py", "description": "Main implementation of the sentiment analyzer"},
+            {"file_name": "example_usage.py", "description": "Example showing how to use the analyzer"}
+        ],
+        "code_style": "Include comprehensive docstrings, type hints, and follow PEP 8",
+        "complexity_level": "intermediate"
+    }
+    print("\nDefined code requirements including allowed libraries and output files")
+    
+    # Use an arbitrary project ID for standalone example
+    project_id = 12345
+    
+    print("\nGenerating code with CoderAgent...")
+    print("-" * 50)
+    start_time = time.time()
+    
+    # Execute the coder agent
+    # In a mock run, create example results to demonstrate the output
+    if not hasattr(coder_agent, 'execute_implemented') or not coder_agent.execute_implemented:
+        print("Note: Using mock data for demonstration purposes")
+        code_result = {
+            "status": "success",
+            "files": [
+                {
+                    "name": "sentiment_analyzer.py",
+                    "content": '''"""Sentiment Analysis Tool for Social Media Posts
+
+This module provides tools for analyzing sentiment in social media text data,
+using both rule-based and ML approaches.
+"""
+import re
+import pandas as pd
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from textblob import TextBlob
+
+# Download necessary NLTK data (uncomment first time)
+# nltk.download('punkt')
+# nltk.download('stopwords')
+
+class SentimentAnalyzer:
+    """A tool for analyzing sentiment in social media posts."""
+    
+    def __init__(self, use_vader=True):
+        """Initialize the sentiment analyzer.
+        
+        Args:
+            use_vader (bool): Whether to use VADER for analysis (if False, uses TextBlob)
+        """
+        self.use_vader = use_vader
+        
+        # Initialize VADER if requested
+        if self.use_vader:
+            try:
+                from nltk.sentiment.vader import SentimentIntensityAnalyzer
+                self.vader = SentimentIntensityAnalyzer()
+            except ImportError:
+                print("VADER not available. Install with: nltk.download('vader_lexicon')")
+                self.use_vader = False
+        
+        # Initialize stopwords
+        try:
+            self.stop_words = set(stopwords.words('english'))
+        except LookupError:
+            print("Stopwords not available. Using empty set.")
+            self.stop_words = set()
+    
+    def preprocess_text(self, text):
+        """Preprocess text for sentiment analysis.
+        
+        Args:
+            text (str): The text to preprocess
+            
+        Returns:
+            str: Preprocessed text
+        """
+        # Convert to lowercase
+        text = text.lower()
+        
+        # Remove URLs
+        text = re.sub(r'https?://\S+|www\.\S+', '', text)
+        
+        # Remove user mentions (Twitter-style @user)
+        text = re.sub(r'@\w+', '', text)
+        
+        # Handle hashtags - keep the text without #
+        text = re.sub(r'#(\w+)', r'\1', text)
+        
+        # Remove non-alphanumeric characters
+        text = re.sub(r'[^\w\s]', '', text)
+        
+        # Remove extra spaces
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+    
+    def analyze(self, text):
+        """Analyze sentiment of the provided text.
+        
+        Args:
+            text (str): Text to analyze
+            
+        Returns:
+            dict: Sentiment analysis results including:
+                - compound: Overall sentiment (-1 to 1, only if VADER is used)
+                - polarity: Sentiment polarity (-1 to 1)
+                - subjectivity: Subjectivity score (0 to 1, 0 being objective)
+                - sentiment: Textual representation (negative, neutral, positive)
+        """
+        # Preprocess the text
+        processed_text = self.preprocess_text(text)
+        
+        # Initialize results dictionary
+        results = {}
+        
+        # Use VADER if available
+        if self.use_vader:
+            vader_scores = self.vader.polarity_scores(processed_text)
+            results['compound'] = vader_scores['compound']
+            
+            # Determine sentiment category from compound score
+            if vader_scores['compound'] >= 0.05:
+                results['sentiment'] = 'positive'
+            elif vader_scores['compound'] <= -0.05:
+                results['sentiment'] = 'negative'
+            else:
+                results['sentiment'] = 'neutral'
+        
+        # Always include TextBlob analysis 
+        blob = TextBlob(processed_text)
+        results['polarity'] = blob.sentiment.polarity
+        results['subjectivity'] = blob.sentiment.subjectivity
+        
+        # Set sentiment based on TextBlob if VADER not used
+        if 'sentiment' not in results:
+            if blob.sentiment.polarity > 0.05:
+                results['sentiment'] = 'positive'
+            elif blob.sentiment.polarity < -0.05:
+                results['sentiment'] = 'negative'
+            else:
+                results['sentiment'] = 'neutral'
+        
+        return results
+    
+    def analyze_batch(self, texts):
+        """Analyze sentiment for a list of texts.
+        
+        Args:
+            texts (list): List of texts to analyze
+            
+        Returns:
+            list: List of sentiment analysis results for each text
+        """
+        return [self.analyze(text) for text in texts]
+    
+    def analyze_df(self, df, text_column):
+        """Analyze sentiment for texts in a DataFrame column.
+        
+        Args:
+            df (DataFrame): Pandas DataFrame with text data
+            text_column (str): Name of the column containing text to analyze
+            
+        Returns:
+            DataFrame: Original DataFrame with added sentiment columns
+        """
+        # Make a copy to avoid modifying the original
+        result_df = df.copy()
+        
+        # Get all sentiment results
+        all_results = self.analyze_batch(result_df[text_column].tolist())
+        
+        # Add each sentiment measure as a new column
+        if self.use_vader:
+            result_df['sentiment_compound'] = [r.get('compound') for r in all_results]
+        
+        result_df['sentiment_polarity'] = [r.get('polarity') for r in all_results]
+        result_df['sentiment_subjectivity'] = [r.get('subjectivity') for r in all_results]
+        result_df['sentiment'] = [r.get('sentiment') for r in all_results]
+        
+        return result_df
+'''
+                },
+                {
+                    "name": "example_usage.py",
+                    "content": '''"""Example usage of the Sentiment Analyzer
+
+This script demonstrates how to use the SentimentAnalyzer class
+for analyzing social media posts.
+"""
+import pandas as pd
+from sentiment_analyzer import SentimentAnalyzer
+
+def main():
+    # Create a sentiment analyzer
+    analyzer = SentimentAnalyzer(use_vader=True)
+    
+    # Example single text analysis
+    print("\nAnalyzing a single post:")
+    sample_post = "I absolutely love this new phone! The camera is amazing! #technology"
+    result = analyzer.analyze(sample_post)
+    print(f"Post: {sample_post}")
+    print(f"Sentiment: {result['sentiment']}")
+    print(f"Polarity: {result['polarity']:.2f}")
+    print(f"Subjectivity: {result['subjectivity']:.2f}")
+    if 'compound' in result:
+        print(f"Compound (VADER): {result['compound']:.2f}")
+    
+    # Example batch analysis
+    print("\nAnalyzing multiple posts:")
+    sample_posts = [
+        "This product is terrible, I'm returning it immediately! #disappointed",
+        "The weather is cloudy today, might rain later.",
+        "Just got promoted at work! So excited for this new opportunity! #blessed"
     ]
     
-    # Current S&P 500 index price
-    current_price = 4025.0
+    results = analyzer.analyze_batch(sample_posts)
+    for i, (post, result) in enumerate(zip(sample_posts, results)):
+        print(f"\nPost {i+1}: {post}")
+        print(f"Sentiment: {result['sentiment']}")
+        print(f"Polarity: {result['polarity']:.2f}")
     
-    # Calculate VIX
-    calculator = VIXCalculator(risk_free_rate=0.015)  # 1.5% risk-free rate
-    vix = calculator.calculate_vix(
-        options_data=sample_options,
-        current_price=current_price,
-        days_to_expiration=30
+    # Example with DataFrame
+    print("\nAnalyzing posts in a DataFrame:")
+    df = pd.DataFrame({
+        'id': [1, 2, 3, 4],
+        'username': ['user1', 'user2', 'user3', 'user1'],
+        'timestamp': ['2023-01-01', '2023-01-02', '2023-01-02', '2023-01-03'],
+        'post': [
+            "I can't believe how bad the service was at this restaurant.",
+            "The new software update is amazing, so many great features!",
+            "Just a regular day, nothing special happening.",
+            "Really excited about the upcoming concert! #music"
+        ]
+    })
+    
+    # Analyze the posts
+    result_df = analyzer.analyze_df(df, 'post')
+    
+    # Display results
+    print(result_df[['username', 'post', 'sentiment', 'sentiment_polarity']].to_string())
+
+if __name__ == "__main__":
+    main()
+'''
+                }
+            ],
+            "explanation": """The generated code provides a robust sentiment analysis tool for social media posts with the following features:
+
+1. **Main Sentiment Analyzer Class:**
+   - Supports both VADER (from NLTK) and TextBlob for sentiment analysis
+   - Includes comprehensive text preprocessing for social media content
+   - Provides methods for analyzing individual posts, batches, and DataFrames
+
+2. **Text Preprocessing:**
+   - Handles common social media elements like URLs, hashtags, and @mentions
+   - Removes special characters and normalizes text
+
+3. **Sentiment Metrics:**
+   - Provides compound scores (VADER), polarity and subjectivity (TextBlob)
+   - Classifies sentiment as positive, negative, or neutral
+
+4. **Example Usage:**
+   - Demonstrates analyzing single posts, multiple posts, and DataFrame integration
+   - Shows how to access and interpret different sentiment metrics
+
+The code follows PEP 8 style guidelines and includes comprehensive docstrings. It's designed to be easy to use while providing detailed sentiment analysis capabilities specifically tuned for social media content."""
+        }
+    else:
+        code_result = coder_agent.execute(
+            query=query,
+            plan=research_plan,
+            chunked_results={"query": query, "chunks": research_chunks},
+            project_id=project_id,
+            requirements=requirements
+        )
+    
+    duration = time.time() - start_time
+    print(f"\nCode generation completed in {duration:.2f} seconds")
+    
+    # Display the results
+    print("\n" + "=" * 80)
+    print("GENERATED CODE FILES:")
+    print("=" * 80)
+    
+    if code_result.get("status") == "success":
+        files = code_result.get("files", [])
+        print(f"\nGenerated {len(files)} files:")
+        
+        # Create a directory to save the generated files
+        output_dir = os.path.join(os.getcwd(), "generated_code_" + datetime.now().strftime("%Y%m%d_%H%M%S"))
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"Saving files to: {output_dir}")
+        
+        # Print and save each generated file
+        for file in files:
+            file_name = file.get("name", "unknown.py")
+            content = file.get("content", "")
+            
+            # Display file in console
+            print(f"\nFILE: {file_name}")
+            print("-" * 80)
+            print(content[:1000] + "..." if len(content) > 1000 else content)  # Truncate long files
+            
+            # Save file to disk
+            file_path = os.path.join(output_dir, file_name)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        
+        # Display explanation if available
+        if "explanation" in code_result:
+            print("\n" + "=" * 80)
+            print("CODE EXPLANATION:")
+            print("=" * 80)
+            print(code_result["explanation"])
+    else:
+        print(f"Error generating code: {code_result.get('error', 'Unknown error')}")
+    
+    # Example of refinement based on feedback
+    print("\n" + "=" * 80)
+    print("EXAMPLE OF CODE REFINEMENT:")
+    print("=" * 80)
+    
+    # Simulate user feedback
+    feedback = "The code looks good, but could you add more visualization options for the sentiment results? Also, it would be nice to have a function to analyze sentiment trends over time for a collection of posts."
+    print(f"\nUser feedback: '{feedback}'")
+    
+    print("\nRefining code based on feedback...")
+    refined_result = coder_agent.refine_code(
+        code_result=code_result,
+        feedback=feedback,
+        project_id=project_id
     )
     
-    print(f"Calculated VIX: {vix:.2f}")
-'''
-    
-    print("\nFILE: vix_calculator.py")
-    print("-"*40)
-    print(vix_calculator_content)
-    
-    # Second file: vix_example.csv
-    vix_example_csv = '''strike,bid,ask,type,current_price
-3900,15.0,16.0,put,4025
-3950,12.5,13.5,put,4025
-4000,10.0,11.0,put,4025
-4050,8.0,9.0,call,4025
-4100,10.5,11.5,call,4025
-4150,13.0,14.0,call,4025
-'''
-    
-    print("\nFILE: vix_example.csv")
-    print("-"*40)
-    print(vix_example_csv)
-    
-    # Print usage instructions
-    print("\nUSAGE INSTRUCTIONS:")
-    usage_instructions = '''To use the VIX calculator:
+    # For demonstration, create mock refined code result
+    if not hasattr(coder_agent, 'refine_code_implemented') or not coder_agent.refine_code_implemented:
+        refined_result = {
+            "status": "success",
+            "files": [
+                {
+                    "name": "sentiment_analyzer.py",
+                    "content": '''"""Enhanced Sentiment Analysis Tool for Social Media Posts
 
-1. Install the required dependencies:
-   ```
-   pip install numpy pandas
-   ```
+This module provides tools for analyzing sentiment in social media text data,
+with visualization capabilities and temporal trend analysis.
+"""
+import re
+import pandas as pd
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from textblob import TextBlob
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime
 
-2. Import the VIXCalculator class:
-   ```python
-   from vix_calculator import VIXCalculator, calculate_vix_from_csv
-   ```
+# Download necessary NLTK data (uncomment first time)
+# nltk.download('punkt')
+# nltk.download('stopwords')
 
-3. Use the calculator with your own options data:
-   ```python
-   calculator = VIXCalculator(risk_free_rate=0.01)
-   vix = calculator.calculate_vix(
-       options_data=your_options_data,
-       current_price=current_index_price,
-       days_to_expiration=30
-   )
-   ```
-
-4. Alternatively, use the CSV helper function:
-   ```python
-   vix = calculate_vix_from_csv('path_to_your_data.csv')
-   ```
-
-The included vix_example.csv file provides a sample format for CSV input data.'''
-    print(usage_instructions)
+class SentimentAnalyzer:
+    """A tool for analyzing sentiment in social media posts with visualization."""
     
-    print("\n" + "-"*50)
+    def __init__(self, use_vader=True):
+        """Initialize the sentiment analyzer.
+        
+        Args:
+            use_vader (bool): Whether to use VADER for analysis (if False, uses TextBlob)
+        """
+        self.use_vader = use_vader
+        
+        # Initialize VADER if requested
+        if self.use_vader:
+            try:
+                from nltk.sentiment.vader import SentimentIntensityAnalyzer
+                self.vader = SentimentIntensityAnalyzer()
+            except ImportError:
+                print("VADER not available. Install with: nltk.download('vader_lexicon')")
+                self.use_vader = False
+        
+        # Initialize stopwords
+        try:
+            self.stop_words = set(stopwords.words('english'))
+        except LookupError:
+            print("Stopwords not available. Using empty set.")
+            self.stop_words = set()
     
-    # Log the agent state - example of what would happen in real execution
-    print("\nExample logging: CoderAgent completed code generation with 2 files produced")
-    print("(This would be saved to the database in a real execution)")
-    print("\n" + "-"*50)
+    def preprocess_text(self, text):
+        """Preprocess text for sentiment analysis.
+        
+        Args:
+            text (str): The text to preprocess
+            
+        Returns:
+            str: Preprocessed text
+        """
+        # Convert to lowercase
+        text = text.lower()
+        
+        # Remove URLs
+        text = re.sub(r'https?://\S+|www\.\S+', '', text)
+        
+        # Remove user mentions (Twitter-style @user)
+        text = re.sub(r'@\w+', '', text)
+        
+        # Handle hashtags - keep the text without #
+        text = re.sub(r'#(\w+)', r'\1', text)
+        
+        # Remove non-alphanumeric characters
+        text = re.sub(r'[^\w\s]', '', text)
+        
+        # Remove extra spaces
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+      
+    # ... [Additional methods would be shown here] ...
+    
+    def visualize_sentiment_distribution(self, results, title="Sentiment Distribution"):
+        """Create a visualization of sentiment distribution.
+        
+        Args:
+            results (list): List of sentiment analysis results
+            title (str): Title for the visualization
+        """
+        # Extract sentiment categories
+        sentiments = [r.get('sentiment') for r in results]
+        
+        # Count occurrences
+        sentiment_counts = pd.Series(sentiments).value_counts()
+        
+        # Create visualization
+        plt.figure(figsize=(10, 6))
+        sns.barplot(x=sentiment_counts.index, y=sentiment_counts.values)
+        
+        # Add title and labels
+        plt.title(title)
+        plt.xlabel('Sentiment')
+        plt.ylabel('Count')
+        
+        # Add count labels on bars
+        for i, count in enumerate(sentiment_counts.values):
+            plt.text(i, count + 0.1, str(count), ha='center')
+        
+        plt.tight_layout()
+        return plt.gcf()
+    
+    def analyze_sentiment_over_time(self, df, text_column, time_column, freq='D'):
+        """Analyze sentiment trends over time.
+        
+        Args:
+            df (DataFrame): DataFrame containing the posts
+            text_column (str): Name of column containing text
+            time_column (str): Name of column containing timestamps
+            freq (str): Frequency for resampling (D=daily, W=weekly, etc.)
+            
+        Returns:
+            DataFrame: Aggregated sentiment data by time period
+        """
+        # Ensure the time column is datetime
+        df = df.copy()
+        if not pd.api.types.is_datetime64_dtype(df[time_column]):
+            df[time_column] = pd.to_datetime(df[time_column], errors='coerce')
+            
+        # Analyze sentiment if not already done
+        if 'sentiment_polarity' not in df.columns:
+            df = self.analyze_df(df, text_column)
+        
+        # Group by time and aggregate
+        grouped = df.set_index(time_column)
+        
+        # Resample by the specified frequency
+        sentiment_over_time = grouped.resample(freq)['sentiment_polarity'].agg(['mean', 'count'])
+        sentiment_over_time = sentiment_over_time.rename(columns={'mean': 'avg_polarity', 'count': 'post_count'})
+        
+        return sentiment_over_time'''    
+                }
+            ]
+        }
+    else:
+        refined_result = coder_agent.refine_code(
+            code_result=code_result, 
+            feedback=feedback,
+            project_id=project_id
+        )
+    
+    # Display refined code
+    if refined_result.get("status") == "success":
+        # Just show the first file as an example
+        if refined_result.get("files"):
+            first_file = refined_result["files"][0]
+            print(f"\nRefined file: {first_file.get('name')}")
+            print("-" * 80)
+            content = first_file.get("content", "")
+            print(content[:1000] + "..." if len(content) > 1000 else content)  # Truncate long files
+    else:
+        print(f"Error refining code: {refined_result.get('error', 'Unknown error')}")
+    
+    # Create a safe output directory variable
+    output_dir = "No files generated" 
+    if code_result.get("status") == "success" and code_result.get("files"):
+        # Only set this if files were actually created
+        output_dir = os.path.join(os.getcwd(), "generated_code_" + datetime.now().strftime("%Y%m%d_%H%M%S"))
+    
+    print("\n" + "=" * 80)
+    print("CoderAgent example completed")
+    if output_dir != "No files generated":
+        print(f"Generated files saved to: {output_dir}")
+    print("=" * 80)

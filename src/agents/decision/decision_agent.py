@@ -16,7 +16,6 @@ if project_root not in sys.path:
 
 from typing import Dict, List, Any, Optional, Tuple
 
-from src.utils.config import config
 from src.db.sqlite_manager import SQLiteManager
 from src.db.qdrant_manager import QdrantManager
 from src.utils.openai_client import AzureOpenAIClient

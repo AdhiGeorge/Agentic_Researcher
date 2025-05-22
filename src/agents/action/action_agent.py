@@ -18,7 +18,7 @@ if project_root not in sys.path:
 
 # Use imports that work for both direct execution and when imported as a module
 from src.agents.base_agent import BaseAgent
-from src.utils.config import config
+from src.utils.config import Config as config
 
 class ActionAgent(BaseAgent):
     """Action agent that determines and executes appropriate actions.

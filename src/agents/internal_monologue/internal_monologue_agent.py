@@ -15,7 +15,7 @@ import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
-from src.utils.config import config
+from src.utils.config import Config as config
 from src.db.sqlite_manager import SQLiteManager
 from src.utils.openai_client import AzureOpenAIClient
 from src.agents.base_agent import BaseAgent
@@ -45,15 +45,32 @@ class InternalMonologueAgent(BaseAgent):
         self.db = kwargs.get("sqlite_db") or SQLiteManager()
         self.config = config_obj or config
         
-        # Load prompt templates
-        self.system_prompt = (
-            "You are an internal monologue system for an AI researcher. "
-            "Your job is to express the AI's internal thoughts and reasoning process "
-            "while it works on research tasks. Make the reasoning process feel natural, "
-            "showing how the AI is thinking about the problem, considering different angles, "
-            "and making connections between pieces of information. Keep responses concise "
-            "but insightful."
-        )
+        # Import prompt loader with dual import pattern
+        try:
+            # When imported as a module
+            from src.utils.prompt_loader import PromptLoader
+        except ModuleNotFoundError:
+            # When run directly as a script
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            from utils.prompt_loader import PromptLoader
+            
+        # Load prompt from centralized prompts.yaml
+        prompt_loader = PromptLoader()
+        self.system_prompt = prompt_loader.get_prompt('internal_monologue.system')
+        
+        # Fall back to default if prompt not found
+        if not self.system_prompt:
+            self.logger.warning("Failed to load internal monologue system prompt from prompts.yaml, using default")
+            self.system_prompt = (
+                "You are an internal monologue system for an AI researcher. "
+                "Your job is to express the AI's internal thoughts and reasoning process "
+                "while it works on research tasks. Make the reasoning process feel natural, "
+                "showing how the AI is thinking about the problem, considering different angles, "
+                "and making connections between pieces of information. Keep responses concise "
+                "but insightful."
+            )
     
     def generate_monologue(self, context: str, state: Dict[str, Any] = None) -> str:
         """Generate human-like internal monologue based on context

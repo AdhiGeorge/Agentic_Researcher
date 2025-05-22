@@ -8,7 +8,7 @@ import logging
 from typing import Dict, Any, Optional
 from jinja2 import Template
 
-from .config_loader import ConfigLoader
+from src.utils.config import Config as ConfigLoader
 
 # Configure logging
 logger = logging.getLogger(__name__)

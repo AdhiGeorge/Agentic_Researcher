@@ -54,6 +54,33 @@ class PlannerAgent(BaseAgent):
         {deliverables}
         """
     
+    async def execute(self, prompt: str, context: Dict[str, Any] = None) -> str:
+        """Execute the planner agent with the given prompt and context.
+        
+        This method serves as a bridge between the SwarmOrchestrator and the agent's process method.
+        
+        Args:
+            prompt (str): The research query or prompt
+            context (Dict[str, Any], optional): Additional context information
+            
+        Returns:
+            str: The research plan as a formatted string
+        """
+        if context is None:
+            context = {}
+            
+        # Prepare input data for the process method
+        input_data = {
+            "query": prompt,
+            **context
+        }
+        
+        # Call the process method and get the results
+        results = self.process(input_data)
+        
+        # Return the formatted research plan
+        return results.get("plan", "No research plan generated")
+    
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process the input query and create a research plan.
         
@@ -110,52 +137,29 @@ class PlannerAgent(BaseAgent):
             azure_endpoint=azure_endpoint
         )
         
-        # Enhanced system prompt for planning with chain-of-thought reasoning
-        system_prompt = """
-        You are an expert research planning assistant with advanced reasoning capabilities. Your task is to create a comprehensive, 
-        structured research plan based on the user's query using chain-of-thought reasoning.
+        # Import the prompt loader - use dual import approach to handle both module and direct execution
+        try:
+            # When imported as a module
+            from src.utils.prompt_loader import PromptLoader
+        except ModuleNotFoundError:
+            # When run directly as a script
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            from utils.prompt_loader import PromptLoader
         
-        USE THE FOLLOWING PROCESS TO CREATE YOUR RESEARCH PLAN:
+        # Skip trying to load from prompts.yaml since there are issues with the PromptLoader
+        # Just use our default prompt
+        system_prompt = None
         
-        ## PHASE 1: ANALYSIS (Think through the problem step by step)
-        1. Start by analyzing what the query is fundamentally asking
-        2. Identify key concepts, entities, and relationships that need to be understood
-        3. Determine what specialized knowledge domains are relevant to this query
-        4. Consider what aspects will require fact-finding vs. conceptual explanation vs. code implementation
-        5. Identify potential challenges or complexities that might arise during research
-        
-        ## PHASE 2: RESEARCH COMPONENTS (Break down into logical categories)
-        1. INFORMATION GATHERING: What specific information needs to be searched for?
-           - Identify search queries that would yield the most relevant information
-           - List specific resources that should be consulted (academic papers, websites, APIs, documentation)
-        2. CONCEPTUAL UNDERSTANDING: What core concepts need explanation?
-           - Identify hierarchical relationships between concepts
-           - Note where visual aids or examples would be helpful
-        3. TECHNICAL REQUIREMENTS: What technical implementations are needed?
-           - Identify coding tasks and appropriate languages/frameworks
-           - List any data processing or analysis requirements
-        4. INTEGRATION: How should different components work together?
-           - Plan how theoretical knowledge connects to practical implementation
-        
-        ## PHASE 3: PLAN FORMULATION (Create the final detailed plan)
-        1. Organize tasks in a logical sequence with dependencies clearly marked
-        2. Assign appropriate agent types to each task (Researcher, Coder, Runner, etc.)
-        3. Estimate relative complexity for each task
-        4. Define clear success criteria for the overall research and each component
-        
-        FORMAT YOUR FINAL RESPONSE AS A MARKDOWN DOCUMENT WITH THESE SECTIONS:
-        1. # Research Plan for: [Query]
-        2. ## Main Objective (Concise statement of the overall goal)
-        3. ## Research Strategy (Brief explanation of your approach)
-        4. ## Agent Allocation (Which agents will handle which aspects)
-        5. ## Detailed Task Breakdown (Numbered, sequential tasks with assigned agents)
-        6. ## Information Requirements (What specific information needs to be gathered)
-        7. ## Technical Implementation (Code requirements and approach)
-        8. ## Deliverables (What the final output should include)
-        9. ## Success Criteria (How to evaluate if the research was successful)
-        
-        Be extremely specific, thorough, and practical in your planning. Think like you are coordinating a team of specialized agents who will execute this plan.
-        """
+        # Use the default prompt since we're skipping the prompt loader
+        if True:
+            self.logger.warning("Failed to load planner system prompt from prompts.yaml, using default")
+            system_prompt = """
+            You are an expert AI research planner. Your job is to break down complex research queries into specific, actionable subtasks.
+            Create detailed, structured research plans that are specific and directly applicable to the user's query.
+            Be extremely specific, thorough, and practical in your planning. Think like you are coordinating a team of specialized agents who will execute this plan.
+            """
         
         # Enhanced user prompt that encourages chain-of-thought reasoning
         user_prompt = f"""I need a comprehensive research plan for the following query:

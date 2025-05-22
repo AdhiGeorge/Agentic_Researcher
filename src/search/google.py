@@ -8,7 +8,7 @@ import time
 import requests
 from typing import List, Dict, Any
 from tenacity import retry, stop_after_attempt, wait_exponential
-from src.utils.config import config
+from src.utils.config import Config as config
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 

@@ -87,15 +87,16 @@ class AgenticResearcherCLI:
         self.swarm_orchestrator = None  # Lazy initialization
         logger.info("Agentic Researcher CLI initialized")
     
-    def _ensure_swarm_orchestrator(self):
+    async def _ensure_swarm_orchestrator(self):
         """Ensure the Swarm Orchestrator instance is initialized"""
         if self.swarm_orchestrator is None:
             self.swarm_orchestrator = SwarmOrchestrator()
             logger.info("Swarm Orchestrator initialized")
     
     async def research(self, query, project_name=None, use_cache=True):
-        """Execute a research query"""
-        self._ensure_swarm_orchestrator()
+        """Execute a research query using available orchestrator methods"""
+        # Ensure the swarm orchestrator is initialized
+        await self._ensure_swarm_orchestrator()
         
         # Create project if name provided
         project_id = None
@@ -111,89 +112,204 @@ class AgenticResearcherCLI:
         start_time = time.time()
         i = 0
         
-        # Start research in background
-        research_task = asyncio.create_task(self.swarm_orchestrator.process_research_query(
-            query=query,
-            project_id=project_id,
-            use_cache=use_cache
-        ))
+        print(f"Executing research for query: '{query}'")
+        context = {
+            "project_id": project_id,
+            "use_cache": use_cache
+        }
         
-        # Show spinner while research is processing
-        while not research_task.done():
-            elapsed = time.time() - start_time
-            spinner = spinner_chars[i % len(spinner_chars)]
-            i += 1
-            print(f"\rResearching {spinner} (elapsed: {elapsed:.1f}s)", end="")
-            await asyncio.sleep(0.1)
-        
-        # Get results
-        results = await research_task
-        
-        # Clear spinner line
-        print("\r" + " " * 50 + "\r", end="")
-        
-        # Print summary
-        print(f"\nResearch complete in {results.get('execution_time', 0):.2f} seconds")
-        if results.get("from_cache", False):
-            print("Results retrieved from cache")
-        
-        if "project_id" in results:
-            print(f"Project ID: {results['project_id']}")
-        
-        # Print results
-        if "results" in results and "answer" in results["results"]:
-            print("\n=== Research Answer ===\n")
-            print(results["results"]["answer"])
+        try:
+            # Step 1: Execute PlannerAgent to create research plan
+            print("\nStep 1: Planning research approach...")
+            planning_task = asyncio.create_task(self.swarm_orchestrator.execute_agent(
+                "PlannerAgent",
+                query,
+                context
+            ))
             
-            # Check for code
-            if "code" in results["results"]:
-                print("\n=== Generated Code ===\n")
-                print(results["results"]["code"])
-        
-        return results
+            # Show spinner while planning is processing
+            while not planning_task.done():
+                elapsed = time.time() - start_time
+                spinner = spinner_chars[i % len(spinner_chars)]
+                i += 1
+                print(f"\rPlanning {spinner} (elapsed: {elapsed:.1f}s)", end="")
+                await asyncio.sleep(0.1)
+            
+            # Get planning results
+            planning_results = await planning_task
+            print("\r" + " " * 50 + "\r", end="")
+            print("Research plan created.")
+            
+            # Step 2: Execute ResearcherAgent with self-revision
+            print("\nStep 2: Gathering and analyzing information...")
+            research_start_time = time.time()
+            research_task = asyncio.create_task(self.swarm_orchestrator.execute_with_self_revision(
+                "ResearcherAgent",
+                query,
+                {**context, "plan": planning_results.get("response", "")}
+            ))
+            
+            # Show spinner while research is processing
+            while not research_task.done():
+                elapsed = time.time() - research_start_time
+                spinner = spinner_chars[i % len(spinner_chars)]
+                i += 1
+                print(f"\rResearching {spinner} (elapsed: {elapsed:.1f}s)", end="")
+                await asyncio.sleep(0.1)
+            
+            # Get research results
+            research_results = await research_task
+            print("\r" + " " * 50 + "\r", end="")
+            print("Information gathered and analyzed.")
+            
+            # Step 3: Execute WriterAgent to format final answer
+            print("\nStep 3: Synthesizing final response...")
+            writer_start_time = time.time()
+            writer_task = asyncio.create_task(self.swarm_orchestrator.execute_agent(
+                "WriterAgent",
+                query,
+                {**context, "research": research_results.get("response", "")}
+            ))
+            
+            # Show spinner while writing is processing
+            while not writer_task.done():
+                elapsed = time.time() - writer_start_time
+                spinner = spinner_chars[i % len(spinner_chars)]
+                i += 1
+                print(f"\rSynthesizing {spinner} (elapsed: {elapsed:.1f}s)", end="")
+                await asyncio.sleep(0.1)
+            
+            # Get writer results
+            writer_results = await writer_task
+            print("\r" + " " * 50 + "\r", end="")
+            
+            # Combine all results
+            total_time = time.time() - start_time
+            results = {
+                "project_id": project_id,
+                "query": query,
+                "results": {
+                    "plan": planning_results.get("response", ""),
+                    "research": research_results.get("response", ""),
+                    "answer": writer_results.get("response", "")
+                },
+                "execution_time": total_time,
+                "timestamp": datetime.now().isoformat(),
+                "from_cache": planning_results.get("from_cache", False) and 
+                              research_results.get("from_cache", False) and 
+                              writer_results.get("from_cache", False)
+            }
+            
+            # Print summary
+            print(f"\nResearch complete in {total_time:.2f} seconds")
+            if results.get("from_cache", False):
+                print("Results retrieved from cache")
+            
+            if project_id:
+                print(f"Project ID: {project_id}")
+                
+            # Print the final answer
+            print("\n" + "-" * 50)
+            print("RESEARCH RESULTS")
+            print("-" * 50)
+            print(writer_results.get("response", "No results available"))
+            print("-" * 50)
+            
+            # Check for code if present
+            if writer_results.get("response", "").find("```") >= 0:
+                print("\nCode blocks found in the response.")
+            
+            return results
+            
+        except Exception as e:
+            logger.exception(f"Error in research workflow: {str(e)}")
+            print(f"\nError executing research: {str(e)}")
+            return {
+                "error": str(e),
+                "project_id": project_id,
+                "query": query,
+                "execution_time": time.time() - start_time
+            }
     
     async def code(self, query, language="python", project_id=None):
         """Generate code for a specific task"""
-        self._ensure_orka_swarm()
+        await self._ensure_swarm_orchestrator()
         
         # Enhance query with language context
         enhanced_query = f"Write {language} code for the following task: {query}"
         
-        print(f"Generating {language} code...")        
-        # Handle the same way as research but with code focus
-        results = await self.swarm_orchestrator.process_research_query(
-            query=enhanced_query,
-            project_id=project_id,
-            use_cache=True
-        )
+        print(f"Generating {language} code...")
         
-        # Print results
-        if "results" in results and "answer" in results["results"]:
-            print("\n=== Explanation ===\n")
-            print(results["results"]["answer"])
-            
-            # Extract code blocks from the answer
-            import re
-            code_blocks = re.findall(r'```(?:' + language + r')?([\s\S]*?)```', results["results"]["answer"])
-            
-            if code_blocks:
-                print("\n=== Generated Code ===\n")
-                print(code_blocks[0].strip())
-                
-                # Save to file
-                extension = ".py" if language == "python" else f".{language}"
-                filename = f"generated_code{extension}"
-                with open(filename, "w") as f:
-                    f.write(code_blocks[0].strip())
-                print(f"\nCode saved to {filename}")
-            else:
-                print("\nNo code block found in the response.")
+        # Use the same pattern as research but with code focus
+        spinner_chars = ['|', '/', '-', '\\']
+        start_time = time.time()
+        i = 0
         
-        return results
+        context = {
+            "project_id": project_id,
+            "use_cache": True,
+            "language": language,
+            "code_request": True
+        }
+        
+        try:
+            # Execute WriterAgent directly for code generation
+            print("\nRequesting code generation...")
+            code_task = asyncio.create_task(self.swarm_orchestrator.execute_with_self_revision(
+                "WriterAgent",
+                enhanced_query,
+                context
+            ))
+            
+            # Show spinner while code is generating
+            while not code_task.done():
+                elapsed = time.time() - start_time
+                spinner = spinner_chars[i % len(spinner_chars)]
+                i += 1
+                print(f"\rGenerating code {spinner} (elapsed: {elapsed:.1f}s)", end="")
+                await asyncio.sleep(0.1)
+            
+            # Get code results
+            code_results = await code_task
+            print("\r" + " " * 50 + "\r", end="")
+            
+            # Format results
+            results = {
+                "project_id": project_id,
+                "query": query,
+                "results": {
+                    "code": code_results.get("response", "")
+                },
+                "execution_time": time.time() - start_time,
+                "timestamp": datetime.now().isoformat(),
+                "from_cache": code_results.get("from_cache", False)
+            }
+            
+            # Print summary
+            print(f"\nCode generation complete in {results['execution_time']:.2f} seconds")
+            
+            # Print the code
+            print("\n" + "-" * 50)
+            print(f"GENERATED {language.upper()} CODE")
+            print("-" * 50)
+            print(code_results.get("response", "No code generated"))
+            print("-" * 50)
+            
+            return results
+            
+        except Exception as e:
+            logger.exception(f"Error in code generation: {str(e)}")
+            print(f"\nError generating code: {str(e)}")
+            return {
+                "error": str(e),
+                "project_id": project_id,
+                "query": query,
+                "execution_time": time.time() - start_time
+            }
     
     async def followup(self, query, project_id, action="answer"):
-        """Ask a follow-up question"""
-        self._ensure_orka_swarm()
+        """Ask a follow-up question about previous research"""
+        await self._ensure_swarm_orchestrator()
         
         # Verify project exists
         project = self.sqlite_manager.get_project(project_id)
@@ -201,21 +317,69 @@ class AgenticResearcherCLI:
             print(f"Project with ID {project_id} not found")
             return {"error": "Project not found"}
         
+        # Show spinner
+        spinner_chars = ['|', '/', '-', '\\']
+        start_time = time.time()
+        i = 0
+        
         print(f"Processing follow-up for project {project_id}...")
         
-        # Process follow-up
-        results = await self.orka_swarm.handle_followup(
-            query=query,
-            project_id=project_id,
-            action_type=action
-        )
+        # Prepare context with previous research
+        context = {
+            "project_id": project_id,
+            "action": action,
+            "previous_research": project.get("results", {})
+        }
         
-        # Print results
-        if "results" in results and "response" in results["results"]:
+        try:
+            # Execute WriterAgent for follow-up response
+            print(f"\nGenerating {action} response to follow-up question...")
+            followup_task = asyncio.create_task(self.swarm_orchestrator.execute_agent(
+                "WriterAgent",
+                query,
+                context
+            ))
+            
+            # Show spinner while generating response
+            while not followup_task.done():
+                elapsed = time.time() - start_time
+                spinner = spinner_chars[i % len(spinner_chars)]
+                i += 1
+                print(f"\rProcessing {spinner} (elapsed: {elapsed:.1f}s)", end="")
+                await asyncio.sleep(0.1)
+            
+            # Get followup results
+            followup_results = await followup_task
+            print("\r" + " " * 50 + "\r", end="")
+            
+            # Format results
+            results = {
+                "project_id": project_id,
+                "query": query,
+                "action": action,
+                "results": {
+                    "response": followup_results.get("response", "")
+                },
+                "execution_time": time.time() - start_time,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Print the response
             print(f"\n=== {action.capitalize()} Response ===\n")
-            print(results["results"]["response"])
-        
-        return results
+            print(followup_results.get("response", "No response generated"))
+            print("-" * 50)
+            
+            return results
+            
+        except Exception as e:
+            logger.exception(f"Error processing follow-up: {str(e)}")
+            print(f"\nError processing follow-up: {str(e)}")
+            return {
+                "error": str(e),
+                "project_id": project_id,
+                "query": query,
+                "execution_time": time.time() - start_time
+            }
     
     def list_projects(self):
         """List all projects"""
@@ -288,10 +452,155 @@ class AgenticResearcherCLI:
         return stats
 
 async def main():
-    """Main entry point for the CLI application"""
-    args = parse_arguments()
+    """Main entry point that supports both interactive and command-line modes"""
     cli = AgenticResearcherCLI()
     
+    # Print welcome message with simple ASCII art logo
+    print("""
+    +--------------------------------------------------+
+    |               AGENTIC RESEARCHER                |
+    |     Orchestrated Research & Knowledge Assistant |
+    +--------------------------------------------------+
+    """)
+    
+    # Detect if arguments were provided
+    try:
+        # First try to parse command-line arguments
+        args = parse_arguments()
+        
+        # If a command was specified, use command-line mode
+        if args.command:
+            print(f"Running in command-line mode: '{args.command}'")
+            return await run_command_line_mode(cli, args)
+            
+        # If no command specified, fall back to interactive mode
+        print("No command specified. Starting interactive mode...")
+        return await run_interactive_mode(cli)
+        
+    except (AttributeError, SystemExit):
+        # If argument parsing fails, try interactive mode
+        print("Welcome to Agentic Researcher interactive CLI.")
+        try:
+            return await run_interactive_mode(cli)
+        except (EOFError, KeyboardInterrupt):
+            print("\nInteractive mode not available in this environment.")
+            print("Use command-line arguments instead (e.g., 'python main.py research \"What is VIX?\"')")
+            print("Run 'python main.py --help' for usage information.")
+            return 1
+
+async def run_interactive_mode(cli):
+    """Run the CLI in interactive mode with user prompts"""
+    print("Type 'help' for available commands or 'exit' to quit.")
+    
+    # Main interactive loop
+    running = True
+    
+    try:
+        while running:
+            print("\n" + "=" * 50)
+            # Get user input with prompt
+            user_input = input("AR> ").strip()
+            
+            # Check for exit command
+            if user_input.lower() in ['exit', 'quit', 'q']:
+                print("Exiting Agentic Researcher. Goodbye!")
+                running = False
+                continue
+                
+            # Check for help command
+            elif user_input.lower() in ['help', 'h', '?']:
+                print("""
+Available commands:
+  research <query>   - Execute a research query
+  code <query>       - Generate code for a specific task
+  followup <query>   - Ask a follow-up question about previous research
+  list               - List all projects
+  details <id>       - Show project details
+  stats              - Show system statistics
+  exit               - Exit the application
+                """)
+                continue
+                
+            # Parse the command
+            parts = user_input.split(maxsplit=1)
+            command = parts[0].lower() if parts else ""
+            
+            # Handle empty input
+            if not command:
+                continue
+                
+            # Process commands
+            if command == "research":
+                if len(parts) < 2:
+                    query = input("Enter your research query: ")
+                else:
+                    query = parts[1]
+                    
+                project_name = input("Project name (press Enter to use default): ") or None
+                use_cache = input("Use cache? (y/n, default: y): ").lower() != 'n'
+                
+                print("\nProcessing research query...")
+                await cli.research(query, project_name, use_cache)
+                
+            elif command == "code":
+                if len(parts) < 2:
+                    query = input("Enter your code request: ")
+                else:
+                    query = parts[1]
+                    
+                language = input("Programming language (default: python): ") or "python"
+                project_id = input("Project ID (press Enter for none): ") or None
+                if project_id and project_id.isdigit():
+                    project_id = int(project_id)
+                    
+                print("\nGenerating code...")
+                await cli.code(query, language, project_id)
+                
+            elif command == "followup":
+                if len(parts) < 2:
+                    query = input("Enter your follow-up question: ")
+                else:
+                    query = parts[1]
+                    
+                project_id_input = input("Project ID: ")
+                if not project_id_input or not project_id_input.isdigit():
+                    print("Error: Project ID is required and must be a number")
+                    continue
+                    
+                project_id = int(project_id_input)
+                action = input("Action (answer/extend/critique, default: answer): ") or "answer"
+                
+                print("\nProcessing follow-up question...")
+                await cli.followup(query, project_id, action)
+                
+            elif command == "list":
+                cli.list_projects()
+                
+            elif command == "details":
+                if len(parts) < 2:
+                    project_id_input = input("Enter project ID: ")
+                else:
+                    project_id_input = parts[1]
+                    
+                if not project_id_input or not project_id_input.isdigit():
+                    print("Error: Project ID must be a number")
+                    continue
+                    
+                cli.project_details(int(project_id_input))
+                
+            elif command == "stats":
+                await cli.show_stats()
+                
+            else:
+                print(f"Unknown command: '{command}'. Type 'help' for available commands.")
+    except (EOFError, KeyboardInterrupt):
+        print("\nInteractive session terminated.")
+    
+    print("\nExiting Agentic Researcher")
+    return 0
+
+async def run_command_line_mode(cli, args):
+    """Run the CLI using command-line arguments"""
     try:
         if args.command == "research":
             await cli.research(args.query, args.project_name, not args.no_cache)
@@ -315,16 +624,13 @@ async def main():
             # No command or unknown command
             print("Please specify a command. Use --help for available commands.")
             return 1
-            
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
-        
     except Exception as e:
-        logger.exception(f"Error in main application: {str(e)}")
+        logger.exception(f"Error in command execution: {str(e)}")
         print(f"Error: {str(e)}")
         return 1
-        
-    finally:
+    finally:    
         print("\nExiting Agentic Researcher")
         
     return 0

@@ -13,16 +13,18 @@ import json
 import logging
 import tempfile
 import hashlib
-from pathlib import Path
-from typing import Dict, List, Set, Tuple, Optional, BinaryIO, Union, Any
+from datetime import datetime
+from typing import Dict, List, Optional, Any
 
-# Enhanced PDF handling
+# Import PDF utilities using dual import pattern for both module and direct execution
 try:
-    import fitz  # PyMuPDF
-    PYMUPDF_AVAILABLE = True
-except ImportError:
-    PYMUPDF_AVAILABLE = False
-    logging.warning("PyMuPDF not available; PDF handling will be limited")
+    # When imported as a module
+    from src.utils.pdf_utils import extract_text_from_pdf
+    from src.utils.file_utils import write_json_file
+except ModuleNotFoundError:
+    # When run directly as a script
+    from pdf_utils import extract_text_from_pdf
+    from file_utils import write_json_file
 
 # Document processing
 try:
@@ -32,12 +34,16 @@ except ImportError:
     DOCX_AVAILABLE = False
     logging.warning("python-docx not available; DOCX handling will be limited")
 
+# PDF processing
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    logging.warning("PyMuPDF not available; PDF handling will be limited")
+
 # Configure logging
 logger = logging.getLogger(__name__)
-
-#============================================================================
-# File Detection and Type Handling
-#============================================================================
 
 def get_file_extension(filename: str) -> str:
     """
@@ -121,10 +127,6 @@ def get_supported_document_extensions() -> List[str]:
     
     return extensions
 
-#============================================================================
-# File Reading and Writing
-#============================================================================
-
 def read_text_file(file_path: str, encoding: str = 'utf-8') -> str:
     """
     Read a text file and return its contents.
@@ -194,45 +196,9 @@ def append_to_text_file(file_path: str, content: str, encoding: str = 'utf-8') -
         logger.error(f"Error appending to text file {file_path}: {str(e)}")
         return False
 
-def read_json_file(file_path: str) -> Dict:
-    """
-    Read a JSON file and return its contents.
-    
-    Args:
-        file_path: Path to the JSON file
-        
-    Returns:
-        Dict: Contents of the JSON file
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Error reading JSON file {file_path}: {str(e)}")
-        return {}
-
-def write_json_file(file_path: str, data: Dict, indent: int = 2) -> bool:
-    """
-    Write data to a JSON file.
-    
-    Args:
-        file_path: Path to the JSON file
-        data: Data to write
-        indent: Indentation level
-        
-    Returns:
-        bool: True if successful
-    """
-    try:
-        # Create directories if they don't exist
-        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
-        
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=indent)
-        return True
-    except Exception as e:
-        logger.error(f"Error writing JSON file {file_path}: {str(e)}")
-        return False
+# JSON file operations have been moved to file_utils.py
+# They are imported at the top of this file to avoid duplication
+# Functions imported: read_json_file, write_json_file
 
 def save_binary_file(file_path: str, data: bytes) -> bool:
     """
@@ -287,21 +253,31 @@ def extract_text_from_file(file_path: str) -> str:
     Returns:
         str: Extracted text
     """
-    # Get the file extension
-    extension = get_file_extension(file_path)
+    if not os.path.exists(file_path):
+        logging.error(f"File not found: {file_path}")
+        return ""
     
-    # Process based on extension
-    if extension == 'pdf':
-        return extract_text_from_pdf(file_path)
-    elif extension == 'docx':
-        return extract_text_from_docx(file_path)
-    elif extension == 'txt' or is_text_file(file_path):
-        return read_text_file(file_path)
-    elif extension == 'json':
-        data = read_json_file(file_path)
-        return json.dumps(data, indent=2)
-    else:
-        logger.warning(f"Unsupported file type: {extension} for file {file_path}")
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    try:
+        if file_ext in [".txt", ".md", ".py", ".js", ".html", ".css", ".json", ".csv"]:
+            # Text file - read directly
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()
+                
+        elif file_ext == ".pdf":
+            # PDF file - use imported function
+            return extract_text_from_document_pdf(file_path)
+            
+        elif file_ext == ".docx" and DOCX_AVAILABLE:
+            # DOCX file
+            return extract_text_from_docx(file_path)
+        
+        else:
+            logging.warning(f"Unsupported file type: {file_ext}")
+            return ""
+    except Exception as e:
+        logging.error(f"Error extracting text from {file_path}: {str(e)}")
         return ""
 
 def extract_text_from_docx(file_path: str) -> str:
@@ -326,7 +302,7 @@ def extract_text_from_docx(file_path: str) -> str:
         logger.error(f"Error extracting text from DOCX {file_path}: {str(e)}")
         return ""
 
-def extract_text_from_pdf(file_path: str) -> str:
+def extract_text_from_document_pdf(file_path: str) -> str:
     """
     Extract text from a PDF file.
     
@@ -336,19 +312,9 @@ def extract_text_from_pdf(file_path: str) -> str:
     Returns:
         str: Extracted text
     """
-    if not PYMUPDF_AVAILABLE:
-        logger.error("PyMuPDF not available; can't extract text from PDF")
-        return ""
-    
-    try:
-        text = ""
-        with fitz.open(file_path) as doc:
-            for page in doc:
-                text += page.get_text()
-        return text
-    except Exception as e:
-        logger.error(f"Error extracting text from PDF {file_path}: {str(e)}")
-        return ""
+    # Use the imported function from pdf_utils.py
+    # This avoids code duplication and ensures consistent PDF handling
+    return extract_text_from_pdf(file_path)  # Using imported function
 
 def extract_pages_from_pdf(file_path: str, start_page: int = 0, end_page: Optional[int] = None) -> str:
     """
@@ -362,25 +328,34 @@ def extract_pages_from_pdf(file_path: str, start_page: int = 0, end_page: Option
     Returns:
         str: Extracted text
     """
-    if not PYMUPDF_AVAILABLE:
-        logger.error("PyMuPDF not available; can't extract pages from PDF")
+    # Get the full text first using the imported function
+    full_text = extract_text_from_pdf(file_path)
+    
+    if not full_text:
         return ""
     
     try:
-        text = ""
-        with fitz.open(file_path) as doc:
-            max_page = len(doc) - 1
-            end_page = min(end_page, max_page) if end_page is not None else max_page
-            start_page = max(0, min(start_page, max_page))
+        # Split text by pages (assuming double newlines separate pages)
+        pages = full_text.split("\n\n")
+        
+        # Validate page range
+        if end_page is None:
+            end_page = len(pages) - 1
+        else:
+            end_page = min(end_page, len(pages) - 1)
             
-            for page_num in range(start_page, end_page + 1):
-                page = doc[page_num]
-                text += f"\n--- Page {page_num + 1} ---\n"
-                text += page.get_text()
-        return text
+        start_page = max(0, start_page)
+        
+        if start_page > end_page:
+            logger.error(f"Invalid page range: {start_page} to {end_page}")
+            return ""
+            
+        # Extract specified pages
+        result = "\n\n".join(pages[start_page:end_page+1])
+        return result
     except Exception as e:
         logger.error(f"Error extracting pages from PDF {file_path}: {str(e)}")
-        return ""
+        return full_text  # Fall back to returning the full text
 
 def get_pdf_metadata(file_path: str) -> Dict[str, Any]:
     """
@@ -881,7 +856,9 @@ if __name__ == "__main__":
         
         print(f"\n  Document: {os.path.basename(file_path)}")
         print(f"  Word Count: {word_count}")
-        print(f"  Content Preview: \"{text[:100].replace('\n', ' ')}...\"")
+        # Fix the f-string backslash issue by using a variable for the preview text
+        preview_text = text[:100].replace('\n', ' ')
+        print(f"  Content Preview: '{preview_text}...'")  # Removed the backslash
     
     # Example 4: Document Processing for Research Pipeline
     print("\nEXAMPLE 4: DOCUMENT PROCESSING FOR RESEARCH PIPELINE")
@@ -958,15 +935,3 @@ if __name__ == "__main__":
     write_json_file(processed_doc_path, processed_doc)
     
     print(f"\nProcessed document saved to: {processed_doc_path}")
-    
-    print("\n" + "=" * 80 + "\n")
-    print("All document processing examples completed successfully!")
-    print("These utilities are essential for handling various document types")
-    print("in research pipelines and knowledge management systems.")
-    print("=" * 80)
-    
-    # Note about cleanup
-    print(f"\nNOTE: Example files remain in {working_dir} for your inspection.")
-    print("You can delete this directory when you're done exploring the examples.")
-    print(f"To remove: 'rm -rf {working_dir}'")
-

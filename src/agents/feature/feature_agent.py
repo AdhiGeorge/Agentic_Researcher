@@ -18,7 +18,6 @@ import time
 import re
 from typing import Dict, List, Any, Optional, Tuple
 
-from src.utils.config import config
 from src.db.sqlite_manager import SQLiteManager
 from src.utils.openai_client import AzureOpenAIClient
 

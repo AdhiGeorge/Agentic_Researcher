@@ -16,10 +16,10 @@ if __name__ == "__main__":
         sys.path.insert(0, project_root)
     
     # Direct relative import when running as script
-    from config_loader import ConfigLoader
+    from config import Config as ConfigLoader
 else:
     # Regular import when imported as a module
-    from src.utils.config_loader import ConfigLoader
+    from src.utils.config import Config as ConfigLoader
 
 class TextEmbedder:
     """
@@ -47,10 +47,11 @@ class TextEmbedder:
         self.mock_embedding_dim = 1536  # Standard OpenAI embedding size
         
         try:
-            # Get Azure OpenAI credentials
-            api_key = self.config.get_azure_api_key()
-            api_version = self.config.get_value("api_keys", "AZURE_API_VERSION", "2023-05-15")
-            azure_endpoint = self.config.get_azure_endpoint()
+            # Get Azure OpenAI credentials from config class
+            azure_embeddings_config = self.config.get_azure_embeddings_config()
+            api_key = azure_embeddings_config.get("api_key")
+            api_version = azure_embeddings_config.get("api_version")
+            azure_endpoint = azure_embeddings_config.get("azure_endpoint")
             
             # Print the credentials for debugging (without showing the full API key)
             api_key_masked = api_key[:5] + '...' + api_key[-5:] if len(api_key) > 10 else '***'
@@ -59,7 +60,7 @@ class TextEmbedder:
             print(f"Azure OpenAI Endpoint: {azure_endpoint}")
             
             # Get the embedding deployment name
-            self.embedding_deployment = self.config.get_azure_embedding_deployment_name()
+            self.embedding_deployment = azure_embeddings_config.get("deployment")
             print(f"Azure OpenAI Embedding Deployment: {self.embedding_deployment}")
             
             # Initialize Azure OpenAI client
@@ -392,7 +393,3 @@ if __name__ == "__main__":
         
     except Exception as e:
         print(f"\nError in embedder example: {str(e)}")
-    
-    print("\nNote: To use this in production:")
-    print("1. Ensure Azure OpenAI API credentials are correctly configured")
-    print("2. Import TextEmbedder in your code and use the embed_text or embed_batch methods")

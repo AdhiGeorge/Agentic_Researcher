@@ -46,12 +46,17 @@ class KnowledgeGraphBuilder:
         try:
             self.nlp = spacy.load("en_core_web_md")
             self.logger.info("Loaded SpaCy model: en_core_web_md")
-        except:
-            self.logger.warning("SpaCy model not found, downloading...")
-            # Download a smaller model as fallback
-            spacy.cli.download("en_core_web_sm")
-            self.nlp = spacy.load("en_core_web_sm")
-            self.logger.info("Loaded SpaCy model: en_core_web_sm")
+        except Exception as e:
+            self.logger.warning(f"SpaCy model not found: {str(e)}")
+            try:
+                # Download a smaller model as fallback
+                self.logger.info("Downloading SpaCy model en_core_web_sm...")
+                spacy.cli.download("en_core_web_sm")
+                self.nlp = spacy.load("en_core_web_sm")
+                self.logger.info("Loaded SpaCy model: en_core_web_sm")
+            except Exception as e2:
+                self.logger.error(f"Failed to download SpaCy model: {str(e2)}")
+                raise ImportError("SpaCy models are required. Please install with: pip install spacy && python -m spacy download en_core_web_sm")
         
         # Reference to the Qdrant manager
         self.qdrant_manager = qdrant_manager
@@ -503,15 +508,42 @@ class KnowledgeGraphBuilder:
         self.logger.info(f"Graph deserialized with {self.graph.number_of_nodes()} nodes and {self.graph.number_of_edges()} edges")
 
 
-# Example usage
+# Example usage with real-world scenarios
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    import os
+    import sys
+    import time
+    from pathlib import Path
+    import tempfile
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    
+    print("===== Knowledge Graph Builder Example Usage =====")
+    print("This example demonstrates knowledge graph construction")
+    print("and entity extraction for research content analysis.")
+    
+    # Fix imports for running directly
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(os.path.dirname(current_dir))
+    if parent_dir not in sys.path:
+        sys.path.append(parent_dir)
+    
+    # Create temporary directory for outputs
+    temp_dir = tempfile.mkdtemp(prefix="graph_builder_example_")
+    print(f"\nCreated temporary directory for outputs: {temp_dir}")
     
     # Create graph builder
     graph_builder = KnowledgeGraphBuilder()
     
-    # Example text
-    text = """
+    print("\nExample 1: Basic Entity Extraction and Graph Building")
+    print("-" * 60)
+    
+    # Example text about VIX
+    text1 = """
     The Volatility Index (VIX) is a real-time market index that represents the market's expectation 
     of 30-day forward-looking volatility. Derived from the price inputs of the S&P 500 index options, 
     it provides a measure of market risk and investors' sentiments. It is also known as the 'Fear Index' 
@@ -520,25 +552,210 @@ if __name__ == "__main__":
     level of fear, stress, or risk in the market.
     """
     
-    # Process text
-    entities = graph_builder.process_text(text, "vix_intro")
+    print("Processing text about the VIX index...")
+    start_time = time.time()
+    entities = graph_builder.process_text(text1, "vix_intro")
+    processing_time = time.time() - start_time
     
     # Print extracted entities
-    print(f"Extracted {len(entities)} entities:")
+    print(f"\nExtracted {len(entities)} entities in {processing_time:.2f}s:")
     for entity in entities[:5]:  # Show first 5
         print(f"  - {entity['text']} ({entity['type']})")
     
     # Show graph stats
-    print(f"\nGraph has {graph_builder.graph.number_of_nodes()} nodes and {graph_builder.graph.number_of_edges()} edges")
+    print(f"\nInitial graph has {graph_builder.graph.number_of_nodes()} nodes and {graph_builder.graph.number_of_edges()} edges")
     
-    # Get entities relevant to a query
-    query = "How is the VIX calculated?"
-    relevant = graph_builder.get_relevant_entities(query, limit=5)
+    print("\nExample 2: Multi-Document Knowledge Integration")
+    print("-" * 60)
     
-    print(f"\nTop 5 entities for query '{query}':")
-    for entity in relevant:
-        print(f"  - {entity['text']} (Score: {entity['relevance_score']})")
+    # Add a second text about options trading
+    text2 = """
+    Options trading involves buying and selling options contracts on financial securities. Options give 
+    the buyer the right, but not the obligation, to buy or sell an underlying asset at a specified price 
+    (strike price) on or before a certain date (expiration date). Call options give the holder the right 
+    to buy the underlying asset, while put options give the holder the right to sell the underlying asset. 
+    Options are often used for hedging, income generation, and speculative purposes. The Chicago Board 
+    Options Exchange (CBOE) is the largest U.S. options exchange where these contracts are traded.
+    """
     
-    # Visualize if matplotlib is available
+    print("Processing text about options trading...")
+    entities2 = graph_builder.process_text(text2, "options_basics", metadata={"category": "finance"})
+    
+    # Add a third text about machine learning
+    text3 = """
+    Machine learning is a branch of artificial intelligence focused on building systems that learn from data. 
+    These algorithms identify patterns and make decisions with minimal human intervention. In finance, 
+    machine learning is used for market prediction, risk assessment, and algorithmic trading. 
+    Neural networks, a popular machine learning technique, are particularly effective for analyzing complex 
+    financial time series data such as stock prices and volatility indices.
+    """
+    
+    print("Processing text about machine learning in finance...")
+    entities3 = graph_builder.process_text(text3, "ml_finance", metadata={"category": "technology"})
+    
+    # Show updated graph stats
+    print(f"\nGraph now has {graph_builder.graph.number_of_nodes()} nodes and {graph_builder.graph.number_of_edges()} edges")
+    
+    # Identify common entities/concepts across documents
+    # This would normally use more sophisticated methods
+    nodes = list(graph_builder.graph.nodes(data=True))
+    
+    # Find nodes with multiple sources
+    cross_document_nodes = []
+    for node_id, data in nodes:
+        sources = set()
+        if 'sources' in data:
+            if isinstance(data['sources'], list):
+                sources = set(data['sources'])
+            elif isinstance(data['sources'], str):
+                sources = {data['sources']}
+        
+        if len(sources) > 1:
+            cross_document_nodes.append((node_id, data, sources))
+    
+    print(f"\nFound {len(cross_document_nodes)} concepts that appear across multiple documents:")
+    for node_id, data, sources in cross_document_nodes[:3]:  # Show top 3
+        text = data.get('text', node_id)
+        print(f"  - {text} (appears in: {', '.join(sources)})")
+    
+    print("\nExample 3: Query-Based Graph Exploration")
+    print("-" * 60)
+    
+    # Try different queries to explore the graph
+    test_queries = [
+        "How is the VIX calculated?",
+        "What are options trading strategies?",
+        "How is machine learning used in finance?"
+    ]
+    
+    for query in test_queries:
+        print(f"\nQuery: '{query}'")
+        
+        # Get relevant entities
+        relevant = graph_builder.get_relevant_entities(query, limit=3)
+        
+        print(f"Top relevant entities:")
+        for entity in relevant:
+            print(f"  - {entity['text']} (Score: {entity.get('relevance_score', 'N/A')})")
+        
+        # Get pruned graph for the query
+        pruned_graph = graph_builder.prune_graph_for_query(query, max_nodes=10)
+        print(f"Pruned graph has {pruned_graph.number_of_nodes()} nodes and {pruned_graph.number_of_edges()} edges")
+    
+    print("\nExample 4: Graph Visualization")
+    print("-" * 60)
+    
+    # Check if visualization is available
     if plt:
-        graph_builder.visualize_graph()
+        print("Matplotlib is available for visualization")
+        
+        # Visualize the full graph (uncomment for interactive visualization)
+        # graph_builder.visualize_graph()
+        
+        # Visualize and save pruned graphs for each query
+        for i, query in enumerate(test_queries):
+            pruned_graph = graph_builder.prune_graph_for_query(query, max_nodes=8)
+            output_file = os.path.join(temp_dir, f"query_{i+1}_graph.png")
+            
+            try:
+                # Visualize and save to file
+                graph_builder.visualize_graph(pruned_graph, output_file)
+                print(f"Saved visualization for '{query}' to {output_file}")
+            except Exception as e:
+                print(f"Error visualizing graph: {str(e)}")
+    else:
+        print("Matplotlib not available for visualization")
+    
+    print("\nExample 5: Graph Serialization and Persistence")
+    print("-" * 60)
+    
+    # Serialize the graph
+    graph_file = os.path.join(temp_dir, "knowledge_graph.json")
+    
+    print(f"Serializing graph with {graph_builder.graph.number_of_nodes()} nodes...")
+    start_time = time.time()
+    graph_data = graph_builder.serialize(graph_file)
+    serialization_time = time.time() - start_time
+    
+    print(f"Graph serialized in {serialization_time:.2f}s to {graph_file}")
+    print(f"Serialized data size: {os.path.getsize(graph_file) / 1024:.1f} KB")
+    
+    # Deserialize to a new graph builder
+    print("\nDeserializing graph to a new instance...")
+    new_graph_builder = KnowledgeGraphBuilder()
+    new_graph_builder.deserialize(path=graph_file)
+    
+    print(f"Deserialized graph has {new_graph_builder.graph.number_of_nodes()} nodes and {new_graph_builder.graph.number_of_edges()} edges")
+    
+    print("\nExample 6: Integration with Research Pipeline")
+    print("-" * 60)
+    
+    # Simulate integration with other components
+    print("This example shows how the graph builder integrates with other components")
+    print("of the Agentic Researcher system (simulation only).")
+    
+    # Simulate a search and extract pipeline
+    def simulate_research_pipeline(query):
+        print(f"\nResearching: '{query}'")
+        
+        # Step 1: Simulate search using DuckDuckGo (in real usage, would call actual search)
+        print("1. Searching web sources...")
+        search_results = [
+            {"title": "Introduction to Financial Volatility", "url": "https://example.com/volatility"},
+            {"title": "The VIX Index Explained", "url": "https://example.com/vix-explained"},
+            {"title": "Options Trading for Beginners", "url": "https://example.com/options-trading"}
+        ]
+        print(f"   Found {len(search_results)} relevant results")
+        
+        # Step 2: Simulate content extraction (in real usage, would use unified_scraper)
+        print("2. Extracting content from sources...")
+        contents = [
+            "The VIX index measures market volatility using options pricing data...",
+            "Options have intrinsic and time value components that affect pricing..."
+        ]
+        print(f"   Extracted content from {len(contents)} sources")
+        
+        # Step 3: Process content with graph builder
+        print("3. Building knowledge graph from extracted content...")
+        for i, content in enumerate(contents):
+            source_id = f"research_{int(time.time())}_{i}"
+            graph_builder.process_text(content, source_id, metadata={"query": query})
+        
+        # Step 4: Get insights from the graph
+        print("4. Extracting key insights from knowledge graph...")
+        relevant_entities = graph_builder.get_relevant_entities(query, limit=5)
+        
+        insights = []
+        for entity in relevant_entities:
+            # Find connected concepts (in a real system would be more sophisticated)
+            neighbors = list(graph_builder.graph.neighbors(entity.get('id', '')))
+            neighbor_data = [graph_builder.graph.nodes[n] for n in neighbors if n in graph_builder.graph.nodes]
+            neighbor_texts = [n.get('text', '') for n in neighbor_data if 'text' in n][:3]
+            
+            insights.append({
+                "concept": entity.get('text', ''),
+                "type": entity.get('type', ''),
+                "related_concepts": neighbor_texts,
+                "relevance": entity.get('relevance_score', 0)
+            })
+        
+        return insights
+    
+    # Run the simulated pipeline
+    research_query = "How do options prices affect the VIX index calculation?"
+    insights = simulate_research_pipeline(research_query)
+    
+    print("\nKey insights extracted:")
+    for i, insight in enumerate(insights, 1):
+        print(f"Insight {i}: {insight['concept']} ({insight['type']})")
+        if insight['related_concepts']:
+            print(f"  Related concepts: {', '.join(insight['related_concepts'])}")
+    
+    print("\n" + "=" * 80)
+    print("Knowledge Graph Builder examples completed!")
+    print("This utility enables semantic understanding of research content")
+    print("and forms the foundation for knowledge-based reasoning.")
+    print("=" * 80)
+    print(f"\nExample files are available in: {temp_dir}")
+    print("You can delete this directory when you're finished exploring the examples.")
+

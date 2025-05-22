@@ -15,7 +15,6 @@ if project_root not in sys.path:
 import re
 from typing import Dict, List, Any, Optional, Tuple, Union
 
-from src.utils.config import config
 from src.db.sqlite_manager import SQLiteManager
 from src.utils.openai_client import AzureOpenAIClient
 

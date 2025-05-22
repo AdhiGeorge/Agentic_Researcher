@@ -4,7 +4,11 @@ This package provides the Answer agent implementation
 for the Agentic Researcher system.
 """
 
-from src.agents.answer_agent import AnswerAgentimport osimport sys
+import os
+import sys
+
+# Import the AnswerAgent from the local module
+from src.agents.answer.answer_agent import AnswerAgent
 
 
 # Add project root to the Python path to enable imports

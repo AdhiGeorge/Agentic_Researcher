@@ -17,7 +17,6 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 # Use imports that work for both direct execution and when imported as a module
-from src.utils.config import config
 from src.db.sqlite_manager import SQLiteManager
 from src.db.qdrant_manager import QdrantManager
 from src.utils.openai_client import AzureOpenAIClient

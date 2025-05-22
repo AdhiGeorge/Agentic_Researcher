@@ -6,10 +6,9 @@ import streamlit as st
 import pandas as pd
 import json
 import time
-from typing import Dict, List, Any, Optional
 
-from ..db.sqlite_logger import SQLiteLogger
-from ..db.qdrant_manager import QdrantManager
+from src.db.sqlite_manager import SQLiteManager as SQLiteLogger
+from src.db.qdrant_manager import QdrantManager
 
 class StreamlitViews:
     """
@@ -88,14 +87,6 @@ class StreamlitViews:
                     options=["Basic", "Standard", "Deep"],
                     value="Standard"
                 )
-                
-                output_format = st.radio(
-                    "Output Format",
-                    options=["Text Summary", "Code Generation", "Both"],
-                    index=0
-                )
-                
-                include_pdf = st.checkbox("Include PDF sources", value=True)
             
             submit_button = st.form_submit_button("Start Research")
             
@@ -109,8 +100,6 @@ class StreamlitViews:
                         description=query,
                         metadata={
                             "search_depth": search_depth,
-                            "output_format": output_format,
-                            "include_pdf": include_pdf,
                             "status": "created"
                         }
                     )
@@ -533,3 +522,45 @@ class StreamlitViews:
             self.code_viewer_page()
         elif page == "Logs":
             self.logs_page()
+
+
+# Example usage - this will run if the file is executed directly
+if __name__ == "__main__":
+    try:
+        print("Initializing Streamlit Views...")
+        print("If you see any database connection errors, they can be safely ignored during this test.")
+        print("Starting Streamlit server...")
+        
+        # Create and run the StreamlitViews application
+        views = StreamlitViews()
+        views.run()
+        
+    except Exception as e:
+        import traceback
+        print(f"Error initializing Streamlit UI: {e}")
+        print(traceback.format_exc())
+        print("\nIf there are database errors, you can safely ignore them for testing the UI.")
+        print("To run without errors, make sure your databases are properly configured.")
+        
+        # Fallback to a minimal Streamlit app that will at least run
+        import streamlit as st
+        
+        st.title("🧠 Agentic Researcher (Test Mode)")
+        st.warning("Running in test mode with limited functionality.")
+        
+        st.write("This is a test of the Streamlit UI components.")
+        st.write("The full application requires database connections to be properly configured.")
+        
+        # Show a simple example form that will work without database connections
+        with st.form("test_form"):
+            query = st.text_area("Research Query", "What is artificial intelligence?")
+            search_depth = st.select_slider("Search Depth", options=["Basic", "Standard", "Deep"])
+            submitted = st.form_submit_button("Test Submit")
+            
+            if submitted:
+                st.success("Form submitted successfully in test mode!")
+                st.json({
+                    "query": query,
+                    "search_depth": search_depth,
+                    "timestamp": time.time()
+                })

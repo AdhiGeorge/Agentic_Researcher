@@ -328,62 +328,329 @@ def adapt_openai_response(response: Any, default_value: str = "") -> Dict[str, A
         return {"content": default_value, "original_response": str(response), "messages": []}
 
 
-# Example usage
+# Example usage with real-world scenarios
 if __name__ == "__main__":
-    # Example 1: Ensuring context variables
-    print("Example 1: Ensuring context variables")
+    import os
+    import sys
+    import json
+    from pprint import pprint
     
-    # Valid dictionary
-    ctx1 = {"query": "test query", "results": [1, 2, 3]}
-    print(f"Valid input: {ctx1}")
-    print(f"Output: {ensure_context_variables(ctx1)}")
+    # Configure more verbose logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     
-    # None input
-    print(f"None input")
-    print(f"Output: {ensure_context_variables(None)}")
+    print("===== Response Adapter Example Usage =====")
+    print("This example demonstrates various response")
+    print("extraction and processing techniques for the OpenAI API")
+    print("across different versions and response formats.")
     
-    # Invalid input
-    print(f"Invalid input (string)")
-    print(f"Output: {ensure_context_variables('not a dict')}")
+    print("\nExample 1: Context Variable Processing")
+    print("-" * 60)
     
-    # Example 2: Safe JSON parsing
-    print("\nExample 2: Safe JSON parsing")
+    # Different context variable formats
+    context_examples = [
+        # Valid dictionary
+        {"query": "what is quantum computing?", "results": ["result1", "result2"]},
+        
+        # None value
+        None,
+        
+        # JSON string
+        '{"query": "string as json", "count": 42}',
+        
+        # Invalid JSON string
+        '{query: invalid json syntax}',
+        
+        # Custom object (simulating a Response object)
+        type('Response', (), {
+            '__class__': type('DummyClass', (), {'__name__': 'Response'}),
+            'content': 'Response content',
+            'messages': [{"role": "assistant", "content": "Object message"}],
+            'role': 'assistant',
+            'choices': None
+        }),
+    ]
     
-    # Valid JSON
-    valid_json = '{"name": "test", "value": 123}'
-    print(f"Valid JSON: {valid_json}")
-    print(f"Parsed: {safe_parse_json(valid_json)}")
+    # Process each example
+    for i, ctx in enumerate(context_examples, 1):
+        print(f"\nContext Variable Example {i}:")
+        print(f"Input type: {type(ctx)}")
+        print(f"Input value: {ctx}")
+        
+        # Process the context variables
+        result = ensure_context_variables(ctx)
+        print("Processed result:")
+        pprint(result)
     
-    # Invalid JSON
-    invalid_json = '{name: test, broken json'
-    print(f"Invalid JSON: {invalid_json}")
-    print(f"Parsed: {safe_parse_json(invalid_json)}")
+    print("\nExample 2: JSON Parsing and Error Handling")
+    print("-" * 60)
     
-    # Example 3: Mock response extraction
-    print("\nExample 3: Response extraction (mocked responses)")
+    # Different JSON examples
+    json_examples = [
+        # Valid simple JSON
+        '{"name": "Quantum Research Paper", "citations": 42}',
+        
+        # Valid nested JSON
+        '''{"research": {
+            "title": "Advances in NLP",
+            "keywords": ["transformers", "attention", "language models"],
+            "metrics": {"accuracy": 0.92, "f1": 0.89}
+        }}''',
+        
+        # Invalid JSON - syntax error
+        '{name: "Missing quotes", count: 123}',
+        
+        # Invalid JSON - unclosed brackets
+        '{"data": [1, 2, 3',
+        
+        # Empty string
+        "",
+        
+        # Non-string
+        42
+    ]
     
-    # Create a mock response structure similar to v1.x
+    # Process each JSON example
+    for i, json_str in enumerate(json_examples, 1):
+        print(f"\nJSON Example {i}:")
+        print(f"Input: {json_str}")
+        
+        # Parse the JSON
+        result = safe_parse_json(json_str)
+        print("Parsed result:")
+        pprint(result)
+    
+    print("\nExample 3: OpenAI API Response Extraction")
+    print("-" * 60)
+    
+    # Mock various OpenAI API response formats
+    
+    # Define mock classes to simulate response objects
     class MockMessage:
-        def __init__(self, content):
+        def __init__(self, content, role="assistant"):
             self.content = content
+            self.role = role
     
     class MockChoice:
-        def __init__(self, message):
+        def __init__(self, message=None, text=None, finish_reason="stop", index=0):
             self.message = message
+            self.text = text
+            self.finish_reason = finish_reason
+            self.index = index
     
-    class MockResponseV1:
-        def __init__(self, content):
-            self.choices = [MockChoice(MockMessage(content))]
+    class MockUsage:
+        def __init__(self, prompt_tokens=10, completion_tokens=20, total_tokens=30):
+            self.prompt_tokens = prompt_tokens
+            self.completion_tokens = completion_tokens
+            self.total_tokens = total_tokens
     
-    # Create a mock response structure similar to v0.28.0
-    class MockResponseV028:
-        def __init__(self, text):
-            self.choices = [{"text": text}]
+    # Different response formats to test
     
-    # Test with v1.x format
-    v1_response = MockResponseV1("Hello from v1.x API")
-    print(f"v1.x extraction: {extract_openai_response_content(v1_response)}")
+    # 1. OpenAI API v1.x Chat Completion Response (object-style)
+    class ChatCompletionV1Response:
+        def __init__(self, content=""):
+            self.id = "chatcmpl-123456789"
+            self.object = "chat.completion"
+            self.created = 1677858242
+            self.model = "gpt-4"
+            self.choices = [MockChoice(message=MockMessage(content=content))]
+            self.usage = MockUsage()
     
-    # Test with v0.28.0 format
-    v028_response = MockResponseV028("Hello from v0.28.0 API")
-    print(f"v0.28.0 extraction: {extract_openai_response_content(v028_response)}")
+    # 2. OpenAI API v1.x Chat Completion Response (dict-style)
+    chat_completion_dict = {
+        "id": "chatcmpl-987654321",
+        "object": "chat.completion",
+        "created": 1677858242,
+        "model": "gpt-4",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "This is a dictionary-style response from the chat API."
+                },
+                "finish_reason": "stop",
+                "index": 0
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30
+        }
+    }
+    
+    # 3. OpenAI API v0.28.0 Completion Response
+    class CompletionV028Response:
+        def __init__(self, text=""):
+            self.id = "cmpl-123abc456def"
+            self.object = "text_completion"
+            self.created = 1677858242
+            self.model = "text-davinci-003"
+            self.choices = [MockChoice(text=text)]
+            self.usage = MockUsage()
+    
+    # 4. Function calling response
+    function_call_response = {
+        "id": "chatcmpl-123function456",
+        "object": "chat.completion",
+        "created": 1677858242,
+        "model": "gpt-4",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "function_call": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\": \"San Francisco\", \"unit\": \"celsius\"}"
+                    }
+                },
+                "finish_reason": "function_call",
+                "index": 0
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 15, 
+            "completion_tokens": 25,
+            "total_tokens": 40
+        }
+    }
+    
+    # Create examples of different response objects
+    response_examples = [
+        ("OpenAI v1.x Chat Completion (object)", 
+         ChatCompletionV1Response("This is an object-style response from the chat API.")),
+        
+        ("OpenAI v1.x Chat Completion (dict)", 
+         chat_completion_dict),
+        
+        ("OpenAI v0.28.0 Completion", 
+         CompletionV028Response("This is an old-style completion API response.")),
+        
+        ("Function Call Response", 
+         function_call_response),
+        
+        ("Error Case - None", 
+         None),
+        
+        ("Error Case - String", 
+         "Not a real response object")
+    ]
+    
+    # Test extraction with each response example
+    for desc, response in response_examples:
+        print(f"\n{desc}:")
+        print(f"Input type: {type(response)}")
+        
+        # Extract content
+        content = extract_openai_response_content(response)
+        print(f"Extracted content: '{content}'")
+        
+        # Full adaptation
+        adapted = adapt_openai_response(response)
+        print("Adapted response:")
+        # Don't print full details for cleaner output
+        if "content" in adapted:
+            print(f"  Content: '{adapted['content']}'")
+        if "messages" in adapted:
+            print(f"  Message count: {len(adapted['messages'])}")
+            if adapted['messages']:
+                print(f"  First message: {adapted['messages'][0]}")
+        print(f"  Response type: {adapted.get('response_type', 'unknown')}")
+    
+    print("\nExample 4: Real-world Integration Scenarios")
+    print("-" * 60)
+    
+    print("1. Response Processing in Research Pipeline")
+    
+    # Simulate a research pipeline that processes responses
+    def simulate_research_pipeline(query, mock_api_response):
+        print(f"\nProcessing query: '{query}'")
+        
+        # Step 1: Extract content from API response
+        content = extract_openai_response_content(mock_api_response)
+        print(f"Extracted content: '{content[:50]}...'" if len(content) > 50 else f"Extracted content: '{content}'")
+        
+        # Step 2: Parse any structured data in the response
+        try:
+            # Sometimes responses contain JSON data
+            structured_data = safe_parse_json(content)
+            if structured_data:
+                print("Detected structured data:")
+                if len(str(structured_data)) > 100:
+                    print(f"  {str(structured_data)[:100]}...")
+                else:
+                    pprint(structured_data)
+            else:
+                print("No structured data detected in response")
+        except Exception as e:
+            print(f"Error parsing structured data: {e}")
+        
+        # Step 3: Adapt the response for downstream processing
+        adapted = adapt_openai_response(mock_api_response)
+        if adapted:
+            print(f"Successfully adapted response for downstream processing")
+            print(f"Response contains {len(adapted.get('messages', []))} messages")
+        
+        # Simulate downstream processing
+        # In a real application, this would feed into other components
+        return {
+            "query": query,
+            "extracted_content": content,
+            "message_count": len(adapted.get('messages', [])),
+            "success": bool(content),
+        }
+    
+    # Test the pipeline with different responses
+    test_queries = [
+        ("What is quantum computing?", 
+         ChatCompletionV1Response("Quantum computing uses quantum mechanics principles like superposition and entanglement to perform computations.")),
+        
+        ("Extract key entities from this text about climate change", 
+         ChatCompletionV1Response(json.dumps({
+             "entities": [
+                 {"text": "climate change", "type": "TOPIC"},
+                 {"text": "global warming", "type": "RELATED_TOPIC"},
+                 {"text": "carbon emissions", "type": "CAUSE"}
+             ]
+         })))
+    ]
+    
+    # Run the pipeline for each test case
+    for query, response in test_queries:
+        result = simulate_research_pipeline(query, response)
+        print("Pipeline result summary:")
+        print(f"  Query: '{result['query']}'")
+        print(f"  Success: {result['success']}")
+        print(f"  Message count: {result['message_count']}")
+    
+    print("\n2. Error Handling and Fallbacks")
+    
+    # Demonstrate error handling with problematic responses
+    problematic_responses = [
+        ("Empty response", None),
+        ("Malformed response", {"broken": "structure", "no": "choices"}),
+        ("String instead of object", "API Error: Rate limit exceeded")
+    ]
+    
+    for desc, response in problematic_responses:
+        print(f"\nHandling {desc}:")
+        
+        # Try to extract content with error handling
+        try:
+            content = extract_openai_response_content(response)
+            print(f"Extracted content: '{content}'")
+        except Exception as e:
+            print(f"Extraction error (should not happen due to safe handling): {e}")
+        
+        # Use adapted response with default value
+        adapted = adapt_openai_response(response, default_value="[FALLBACK CONTENT]")
+        print(f"Adapted with fallback: '{adapted.get('content')}'")
+    
+    print("\n" + "=" * 80)
+    print("Response Adapter examples completed!")
+    print("This utility ensures consistent handling of API responses")
+    print("across different OpenAI API versions and formats.")
+    print("=" * 80)

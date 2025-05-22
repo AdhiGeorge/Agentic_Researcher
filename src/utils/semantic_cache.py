@@ -342,45 +342,234 @@ class SemanticCache:
         }
 
 
-# Example usage
+# Example usage with real-world scenarios and API calls
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    import os
+    import sys
+    import time
+    from pathlib import Path
     
-    # Simple embedding function for testing
-    def dummy_embedding(text):
-        # This is just for testing - returns a random vector
-        import random
-        return [random.random() for _ in range(768)]
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     
-    # Create cache
-    cache = SemanticCache(embedding_function=dummy_embedding)
+    print("===== Semantic Cache Example Usage =====")
+    print("This example demonstrates the functionality of the semantic cache")
+    print("with realistic queries and optional integration with real embeddings.")
+    
+    # Try to import from parent directory if running the file directly
+    current_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+    parent_dir = current_dir.parent.parent
+    if parent_dir not in sys.path:
+        sys.path.append(str(parent_dir))
+    
+    # Try to use real embeddings if available
+    use_real_embeddings = False
+    embedding_function = None
+    
+    try:
+        from src.utils.embedder import TextEmbedder
+        from src.utils.config import Config
+        
+        # Initialize config and embedder
+        config = Config()
+        
+        if config.get_azure_openai_config()['api_key']:
+            print("\nUsing real Azure OpenAI embeddings!")
+            embedder = TextEmbedder()
+            embedding_function = embedder.embed_text
+            use_real_embeddings = True
+        else:
+            print("\nAzure OpenAI API key not found. Using dummy embeddings.")
+    except (ImportError, Exception) as e:
+        print(f"\nCould not initialize real embeddings: {str(e)}")
+        print("Using dummy embeddings for demonstration purposes.")
+    
+    # If real embeddings aren't available, use dummy function
+    if not use_real_embeddings:
+        def embedding_function(text):
+            # Generate deterministic pseudo-random embeddings based on text content
+            # to ensure similar texts get similar embeddings
+            import hashlib
+            import numpy as np
+            
+            # Get hash of text and use it as seed
+            text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+            seed = int(text_hash[:8], 16)  # Use first 8 chars of hash as seed
+            np.random.seed(seed)
+            
+            # Generate embedding vector (dimension 1536 like text-embedding-3-small)
+            embedding = np.random.normal(0, 1, 1536).tolist()
+            
+            # Normalize to unit length (cosine similarity preparation)
+            magnitude = np.sqrt(sum(x*x for x in embedding))
+            normalized = [x/magnitude for x in embedding]
+            
+            return normalized
+    
+    # Create database directory if needed (for optional real persistence)
+    db_dir = Path(current_dir) / "example_data"
+    db_dir.mkdir(exist_ok=True)
+    
+    # Optional: Setup SQLite persistence (commented out)
+    # try:
+    #     from src.utils.sqlite_manager import SQLiteManager
+    #     sqlite_manager = SQLiteManager(db_path=str(db_dir / "semantic_cache.db"))
+    # except ImportError:
+    #     sqlite_manager = None
+    #     print("SQLite persistence not available. Using in-memory cache.")
+    
+    # Create cache with the embedding function
+    cache = SemanticCache(
+        # sqlite_manager=sqlite_manager,  # Uncomment to use persistence
+        embedding_function=embedding_function,
+        default_threshold=0.90,
+        min_threshold=0.85,
+        max_threshold=0.95,
+        cache_ttl=3600 * 24  # 1 day for this example
+    )
+    
+    print("\nExample 1: Basic hash-based exact matching")
+    print("-" * 50)
     
     # Test queries
     q1 = "What is the VIX index and how is it calculated?"
-    q2 = "How do you calculate the Volatility Index (VIX)?"
-    q3 = "What's the formula for computing VIX?"
     
-    # Test exact match
-    print(f"Query: {q1}")
+    # Check if entry exists (it shouldn't yet)
     result = cache.get(q1)
-    print(f"Cache get result: {result}")
+    print(f"Query: {q1}")
+    print(f"Initial cache check: {'Hit' if result else 'Miss'}")
     
     # Store result
-    cache.put(q1, {"answer": "VIX is calculated using option prices..."})
+    example_result = {
+        "answer": "The VIX (Volatility Index) is calculated using near- and next-term put and call options with more than 23 days and less than 37 days to expiration. The formula uses a weighted average of these options' prices to derive the expected volatility.",
+        "sources": ["Chicago Board Options Exchange documentation"],
+        "timestamp": time.time()
+    }
+    
+    print("\nStoring result in cache...")
+    cache.put(q1, example_result)
     
     # Try exact match again
     result = cache.get(q1)
-    print(f"Cache hit after storing: {result is not None}")
-    
-    # Try semantic match
-    result = cache.get(q2)
+    print(f"\nCache check after storing: {'Hit' if result else 'Miss'}")
     if result:
-        print(f"Semantic hit with similarity: {result.get('similarity', 0)}")
-        print(f"Original query: {result.get('original_query')}")
-    else:
-        print("Semantic miss")
+        print(f"Retrieved answer: {result.get('result', {}).get('answer', '')[:50]}...")
+        print(f"Match type: {'Exact' if result.get('match_type') == 'exact' else 'Semantic'}")
     
-    # Print stats
-    print("\nCache statistics:")
-    for key, value in cache.get_stats().items():
-        print(f"  {key}: {value}")
+    print("\nExample 2: Semantic similarity matching")
+    print("-" * 50)
+    
+    # Similar queries with different wording
+    similar_queries = [
+        "How do you calculate the Volatility Index (VIX)?",
+        "What's the formula for computing VIX?",
+        "Explain the VIX calculation methodology.",
+        "How is the CBOE Volatility Index determined?"
+    ]
+    
+    print("Testing semantically similar queries against our cached entry:\n")
+    
+    for i, query in enumerate(similar_queries, 1):
+        print(f"Query {i}: {query}")
+        result = cache.get(query)
+        
+        if result:
+            print(f"  Result: Hit")
+            print(f"  Match type: {result.get('match_type', 'unknown')}")
+            print(f"  Similarity: {result.get('similarity', 0):.4f}")
+            print(f"  Original query: {result.get('original_query', '')}")
+        else:
+            print(f"  Result: Miss")
+        print()
+    
+    print("Example 3: Completely different queries")
+    print("-" * 50)
+    
+    unrelated_queries = [
+        "What is the capital of France?",
+        "How do neural networks work?",
+        "Explain quantum computing principles."
+    ]
+    
+    print("These should be cache misses:\n")
+    
+    for i, query in enumerate(unrelated_queries, 1):
+        print(f"Query {i}: {query}")
+        result = cache.get(query)
+        
+        if result:
+            print(f"  Unexpected cache hit with similarity: {result.get('similarity', 0):.4f}")
+        else:
+            print(f"  Expected cache miss")
+        print()
+    
+    # Store some of these for the next test
+    cache.put(unrelated_queries[0], {"answer": "The capital of France is Paris.", "timestamp": time.time()})
+    cache.put(unrelated_queries[1], {"answer": "Neural networks are computational systems inspired by the biological neural networks in animal brains...", "timestamp": time.time()})
+    
+    print("Example 4: Cache invalidation")
+    print("-" * 50)
+    
+    print("Testing cache invalidation for specific query hash:")
+    # Get the hash for the first unrelated query
+    query_hash = cache.compute_query_hash(unrelated_queries[0])
+    print(f"Invalidating entry for '{unrelated_queries[0]}'")
+    
+    # Check if it exists
+    before = cache.get(unrelated_queries[0]) is not None
+    print(f"Entry exists before invalidation: {before}")
+    
+    # Invalidate it
+    invalidated = cache.invalidate(query_hash=query_hash)
+    print(f"Invalidated {invalidated} entries")
+    
+    # Check if it exists after
+    after = cache.get(unrelated_queries[0]) is not None
+    print(f"Entry exists after invalidation: {after}")
+    
+    print("\nTesting time-based invalidation:")
+    print("This would normally invalidate entries older than the specified time,")
+    print("but for demonstration, we'll just show the API.")
+    print("cache.invalidate(older_than=3600)  # Invalidate entries older than 1 hour")
+    
+    print("\nExample 5: Cache statistics")
+    print("-" * 50)
+    
+    # Print cache statistics
+    stats = cache.get_stats()
+    print("Cache statistics:")
+    for key, value in stats.items():
+        # Format the value based on its type
+        if isinstance(value, float):
+            formatted_value = f"{value:.4f}"
+        elif isinstance(value, list):
+            formatted_value = f"[{', '.join(str(x) for x in value)}]"
+        else:
+            formatted_value = str(value)
+        
+        print(f"  {key}: {formatted_value}")
+    
+    # Performance test (optional)
+    if use_real_embeddings:
+        print("\nExample 6: Performance test with real embeddings")
+        print("-" * 50)
+        
+        test_queries = similar_queries + unrelated_queries
+        print(f"Testing performance with {len(test_queries)} queries...")
+        
+        start_time = time.time()
+        for query in test_queries:
+            result = cache.get(query)
+        end_time = time.time()
+        
+        avg_time = (end_time - start_time) / len(test_queries) * 1000  # ms
+        print(f"Average query time: {avg_time:.2f} ms per query")
+    
+    print("\n" + "=" * 80)
+    print("Semantic Cache example completed!")
+    print("This utility helps improve response time and reduce API costs")
+    print("by caching results and finding semantically similar previous queries.")
+    print("=" * 80)

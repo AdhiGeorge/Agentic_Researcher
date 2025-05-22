@@ -24,11 +24,18 @@ Agentic Researcher is a powerful, modular, and extensible research and code synt
 
 ## Key Features
 
+- **Dynamic Agent Workflow**: Intelligent agent selection and routing based on task requirements
 - **Self-Revisioning Chain of Thought**: Agents evaluate and improve their outputs through dynamic feedback loops
 - **Entity-Based Contextual Graphing**: Named entity recognition and knowledge graph construction for contextual understanding
 - **Context-Aware Prompt Caching**: Hybrid hash-based and semantic similarity caching (0.85-0.95 threshold)
 - **Advanced Playwright Web Scraping**: Anti-detection mechanisms, proxy rotation, and robots.txt compliance
 - **Semantic Chunking**: Content processing with entity preservation and optimal overlap
+- **File Upload & Analysis**: Support for CSV, Excel, JSON, PDF, and text file analysis
+- **Interactive Data Visualization**: Generate charts, correlation matrices, and visualization reports
+- **Large Output Generation**: Generate and manage outputs exceeding 50,000+ characters
+- **Code Execution Environment**: Run Python code for data analysis and visualization
+- **Export Functionality**: Export research results to PDF, DOCX, HTML, and markdown
+- **Citation Management**: Track, format, and assess the quality of research sources
 - **Azure OpenAI Integration**: Leverages GPT-4o for reasoning and text-embedding-3-small for embeddings
 - **SwarmOS Architecture**: Full implementation of OpenAI's Swarm framework for agent orchestration
 - **Dual Database Strategy**: Qdrant for vector storage and SQLite for state management
@@ -53,6 +60,9 @@ src/                        # Main source code directory
 │   ├── __init__.py
 │   ├── base_agent.py       # Base agent class
 │   ├── planner/            # Planning with self-revision
+│   │   ├── __init__.py
+│   │   ├── planner_agent.py # Standard planner
+│   │   └── advanced_planner.py # Enhanced planner with task decomposition
 │   ├── researcher/         # Web research and scraping
 │   ├── formatter/          # Content processing and structuring
 │   ├── answer/             # Answer synthesis
@@ -65,7 +75,7 @@ src/                        # Main source code directory
 │   └── internal_monologue/ # Thought verbalization
 ├── orchestrator/           # Orchestration framework
 │   ├── __init__.py
-│   ├── swarm_orchestrator.py       # Swarm implementation
+│   ├── swarm_orchestrator.py # Swarm implementation with dynamic workflow
 │   └── swarm_manager.py    # Workflow management
 ├── db/                     # Database systems
 │   ├── __init__.py
@@ -73,24 +83,60 @@ src/                        # Main source code directory
 │   └── qdrant_manager.py   # Vector embeddings
 ├── search/                 # Search and scraping
 │   ├── __init__.py
-│   └── unified_scraper.py  # Comprehensive web scraper
+│   ├── unified_scraper.py  # Comprehensive web scraper
+│   ├── duckduckgo.py       # DuckDuckGo search client
+│   └── pdf_extractor.py    # PDF extraction with multiple engines
 ├── ui/                     # User interfaces
 │   ├── __init__.py
-│   └── streamlit_app.py    # Streamlit UI
+│   ├── streamlit_app.py    # Streamlit UI
+│   └── file_upload_processor.py # Handles various file uploads
 └── utils/                  # Utility modules
     ├── __init__.py
-    ├── azure_client.py     # Azure OpenAI client
+    ├── openai_client.py    # OpenAI API client
     ├── config.py           # Configuration management
     ├── graph_builder.py    # Knowledge graph construction
     ├── semantic_cache.py   # Context-aware caching
     ├── semantic_chunker.py # Advanced text chunking
-    └── query_hash.py       # Query hashing and management
+    ├── query_hash.py       # Query hashing and management
+    ├── large_output_generator.py # Handles large text outputs
+    ├── export_utils.py     # Export functionality for different formats
+    ├── visualization.py    # Data visualization tools
+    ├── citation_manager.py # Source tracking and citation formatting
+    ├── code_executor.py    # Secure Python code execution
+    ├── document_utils.py   # Document processing utilities
+    └── pdf_utils.py        # PDF handling with multiple backends
 
 app.py                      # Streamlit entry point
 main.py                     # CLI entry point
 requirements.txt            # Dependencies
 .env                        # Environment variables
 ```
+
+## Project Organization
+
+The project has been streamlined and organized following these principles:
+
+### Configuration Management
+- All configuration values are centralized in `config.yaml`
+- No hardcoded API keys or sensitive values in the codebase
+- Environment variables are loaded from `.env` file
+- UI configuration is dynamically loaded from configuration files
+
+### Prompt Management
+- All prompts are centralized in `prompts.yaml`
+- `PromptLoader` utility provides a singleton instance for accessing prompts
+- Agents use the prompt loader with fallback defaults if needed
+
+### Utilities Organization
+- PDF functionality consolidated in `pdf_utils.py`
+- File operations consolidated in `file_utils.py`
+- Document-specific operations in `document_utils.py`
+- Removed duplicate code and dependencies between utility files
+
+### Error Handling
+- Improved module import paths with dual import approach for modules vs. direct execution
+- Better error logging and fallback mechanisms
+- Configuration validation to ensure all required settings are present
 
 ## Installation
 

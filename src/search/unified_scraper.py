@@ -19,6 +19,8 @@ import logging
 import asyncio
 import concurrent.futures
 import tempfile
+import warnings
+import certifi
 from urllib.parse import urlparse
 from typing import Dict, List, Any, Optional, Tuple, Union
 
@@ -30,6 +32,10 @@ from bs4 import BeautifulSoup
 import requests
 from requests.exceptions import RequestException
 
+# Suppress InsecureRequestWarning
+from urllib3.exceptions import InsecureRequestWarning
+warnings.filterwarnings('ignore', category=InsecureRequestWarning)
+
 # Try to import reppy for robots.txt, but provide a fallback
 try:
     from reppy.robots import Robots
@@ -39,11 +45,26 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("reppy module not available. Using simplified robots.txt handling.")
 
-# Import project utilities
-from ..utils.config import config
+from src.utils.config import Config as config
+import types
 
+config = types.SimpleNamespace()
+config.proxies = []
+config.user_agents = []
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Try to import PDF extraction functionality
+try:
+    from .pdf_extractor import PDFExtractor
+    PDF_EXTRACTOR_AVAILABLE = True
+except ImportError:
+    try:
+        from src.search.pdf_extractor import PDFExtractor
+        PDF_EXTRACTOR_AVAILABLE = True
+    except ImportError:
+        PDF_EXTRACTOR_AVAILABLE = False
+        logger.warning("PDF extraction functionality not available")
 
 
 class UnifiedScraper:
@@ -77,7 +98,7 @@ class UnifiedScraper:
     def __init__(self, headless: bool = True, use_proxies: bool = False, 
                  rotate_user_agents: bool = True, min_delay: float = 1.0, 
                  max_delay: float = 3.0, honor_robots_txt: bool = False,
-                 use_stealth_mode: bool = True):
+                 use_stealth_mode: bool = True, verify_ssl: bool = True):
         """
         Initialize the unified scraper
         
@@ -89,6 +110,7 @@ class UnifiedScraper:
             max_delay: Maximum delay between requests to the same domain (seconds)
             honor_robots_txt: Whether to respect robots.txt rules
             use_stealth_mode: Whether to use stealth mode to avoid detection
+            verify_ssl: Whether to verify SSL certificates
         """
         self.logger = logging.getLogger("search.unified_scraper")
         
@@ -97,6 +119,12 @@ class UnifiedScraper:
         
         # Browser settings
         self.headless = headless
+        self.verify_ssl = verify_ssl
+        
+        # Initialize PDF extractor if available
+        self.pdf_extractor = None
+        if PDF_EXTRACTOR_AVAILABLE:
+            self.pdf_extractor = PDFExtractor()
         self.use_stealth_mode = use_stealth_mode
         
         # User-agent and proxy settings
@@ -308,85 +336,141 @@ class UnifiedScraper:
     
     def _setup_browser(self) -> None:
         """Set up the browser if it's not already running"""
-        if self.browser is not None:
-            return
-            
+        # Use a lock to prevent multiple threads from setting up browsers simultaneously
         try:
-            # Create a new playwright instance
-            self.playwright = sync_playwright().start()
+            # Check if browser is already running before trying to set it up
+            if self.browser is not None:
+                return
+                
+            # If another thread is setting up the browser, wait a bit
+            if hasattr(self, '_browser_setup_in_progress') and self._browser_setup_in_progress:
+                logger.info("Browser setup in progress in another thread, waiting...")
+                for _ in range(10):  # Try for up to 5 seconds
+                    time.sleep(0.5)
+                    if self.browser is not None:
+                        return
+                        
+            # Mark that we're setting up the browser
+            self._browser_setup_in_progress = True
             
-            # Get browser type
-            browser_type = self.playwright.chromium
-            
-            # Configure browser arguments
-            if self.use_stealth_mode:
-                # Stealth mode with anti-detection measures
-                browser_args = [
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                    '--window-size=1920,1080'
-                ]
-                logger.info("Using stealth mode to avoid detection")
-            else:
-                # Basic browser arguments
-                browser_args = [
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage'
-                ]
-            
-            # Launch browser
-            self.browser = browser_type.launch(
-                headless=self.headless,
-                args=browser_args
-            )
-            
-            # Create a browser context with specific options
-            context_options = {
-                'viewport': {'width': 1920, 'height': 1080},
-                'user_agent': self._get_random_user_agent(),
-                'ignore_https_errors': True
-            }
-            
-            # Add proxy if configured
-            proxy = self._get_random_proxy()
-            if proxy:
-                context_options['proxy'] = {'server': proxy}
-            
-            # Create browser context
-            self.context = self.browser.new_context(**context_options)
-            
-            # Add additional scripts for stealth mode
-            if self.use_stealth_mode:
-                # Add stealth script that modifies JS environment to avoid detection
-                self.context.add_init_script("""
-                () => {
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => false,
-                    });
-                    
-                    // Add plugins for more realistic browser fingerprint
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3, 4, 5].map(() => ({
-                            description: 'Plugin',
-                            filename: 'plugin.dll',
-                            name: 'Plugin'
-                        })),
-                    });
-                    
-                    // Modify the chrome property
-                    window.chrome = {
-                        app: {
-                            isInstalled: false,
-                        },
-                        runtime: {}
-                    };
+            try:
+                # Create a new playwright instance
+                self.playwright = sync_playwright().start()
+                
+                # Get browser type
+                browser_type = self.playwright.chromium
+                
+                # Configure browser arguments for stability
+                if self.use_stealth_mode:
+                    # Stealth mode with anti-detection measures
+                    browser_args = [
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-dev-shm-usage',
+                        '--no-sandbox',
+                        '--disable-extensions',
+                        '--disable-background-networking',
+                        '--disable-background-timer-throttling',
+                        '--disable-backgrounding-occluded-windows',
+                        '--disable-breakpad',
+                        '--disable-component-extensions-with-background-pages',
+                        '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+                        '--disable-ipc-flooding-protection',
+                        '--disable-renderer-backgrounding',
+                        '--enable-features=NetworkService,NetworkServiceInProcess',
+                        '--force-color-profile=srgb',
+                        '--metrics-recording-only',
+                        '--mute-audio',
+                        '--window-size=1920,1080'
+                    ]
+                    logger.info("Using stealth mode to avoid detection")
+                else:
+                    # Basic browser arguments optimized for stability
+                    browser_args = [
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-extensions',
+                        '--disable-gpu',
+                        '--mute-audio'
+                    ]
+                
+                # Launch browser with thread-safe configuration
+                self.browser = browser_type.launch(
+                    headless=self.headless,
+                    args=browser_args,
+                    handle_sigint=False,  # Don't kill browser on Ctrl+C
+                    handle_sigterm=False,  # Don't kill browser on termination signals
+                    handle_sighup=False,   # Don't kill browser on terminal close
+                    ignore_default_args=['--enable-automation']
+                )
+                
+                # Create a browser context with specific options
+                context_options = {
+                    'viewport': {'width': 1920, 'height': 1080},
+                    'user_agent': self._get_random_user_agent(),
+                    'ignore_https_errors': not self.verify_ssl,
+                    'java_script_enabled': True,
+                    'bypass_csp': True  # Bypass Content-Security-Policy
                 }
-                """)
-            
-            logger.info(f"Browser setup complete (headless: {self.headless})")
+                
+                # Add proxy if configured
+                proxy = self._get_random_proxy()
+                if proxy:
+                    context_options['proxy'] = {'server': proxy}
+                
+                # Create browser context
+                self.context = self.browser.new_context(**context_options)
+                
+                # Set timeout for stability
+                self.context.set_default_timeout(30000)  # 30 seconds timeout
+                
+                # Add additional scripts for stealth mode
+                if self.use_stealth_mode:
+                    # Add stealth script that modifies JS environment to avoid detection
+                    self.context.add_init_script("""
+                    () => {
+                        Object.defineProperty(navigator, 'webdriver', {
+                            get: () => false,
+                        });
+                        
+                        // Add plugins for more realistic browser fingerprint
+                        Object.defineProperty(navigator, 'plugins', {
+                            get: () => [1, 2, 3, 4, 5].map(() => ({
+                                description: 'Plugin',
+                                filename: 'plugin.dll',
+                                name: 'Plugin'
+                            })),
+                        });
+                        
+                        // Modify the chrome property
+                        window.chrome = {
+                            app: {
+                                isInstalled: false,
+                            },
+                            runtime: {}
+                        };
+                        
+                        // Modify navigator properties
+                        const originalQuery = window.navigator.permissions.query;
+                        window.navigator.permissions.query = (parameters) => (
+                            parameters.name === 'notifications' ?
+                                Promise.resolve({ state: Notification.permission }) :
+                                originalQuery(parameters)
+                        );
+                    }
+                    """)
+                
+                logger.info(f"Browser setup complete (headless: {self.headless})")
+            except Exception as e:
+                logger.error(f"Error setting up browser: {str(e)}")
+                self._browser_setup_in_progress = False
+                raise
+                
+            # Mark setup as complete
+            self._browser_setup_in_progress = False
         except Exception as e:
-            logger.error(f"Error setting up browser: {str(e)}")
+            logger.error(f"Error in _setup_browser: {str(e)}")
+            # Reset flag in case of error
+            self._browser_setup_in_progress = False
             raise
             
     def scrape(self, url: str) -> Tuple[str, Dict[str, Any]]:
@@ -401,6 +485,10 @@ class UnifiedScraper:
         """
         self.logger.info(f"Scraping URL: {url}")
         
+        # Check if this is a PDF URL and we have a PDF extractor
+        if self.pdf_extractor and self._is_likely_pdf_url(url):
+            return self._scrape_pdf(url)
+            
         # Get domain for rate limiting
         parsed_url = urlparse(url)
         domain = parsed_url.netloc
@@ -411,44 +499,55 @@ class UnifiedScraper:
             user_agent = self._get_random_user_agent()
         else:
             user_agent = self.USER_AGENTS[0] if not self.rotate_user_agents else self._get_random_user_agent()
+            
+        # Special handling for Wikipedia
+        if 'wikipedia.org' in domain:
+            return self._scrape_wikipedia(url, user_agent)
+            
+        # Check if this is a rate-limited domain
+        if domain in self.rate_limits:
+            last_access, count = self.rate_limits[domain]
+            now = time.time()
+            
+            # If accessed recently and over limit, delay
+            if now - last_access < 60 and count > 10:  # 10 requests per minute max
+                delay = self._get_random_delay(domain)
+                self.logger.info(f"Rate limiting {domain}, sleeping for {delay:.2f}s")
+                time.sleep(delay)
+            
+            # Update rate limit counter
+            self.rate_limits[domain] = (now, count + 1)
+        else:
+            # Initialize rate limit counter
+            self.rate_limits[domain] = (time.time(), 1)
         
         # Check robots.txt
         if not self._check_robots_txt(url, user_agent):
-            self.logger.warning(f"URL {url} is disallowed by robots.txt")
-            return "", {"status": "disallowed_by_robots_txt", "url": url}
+            self.logger.warning(f"URL {url} disallowed by robots.txt")
             
-        # Apply rate limiting
-        delay = self._get_random_delay(domain)
-        if delay > 0:
-            self.logger.debug(f"Waiting {delay:.2f}s before accessing {domain}")
-            time.sleep(delay)
-        
-        # Determine scraping method based on URL or content type
-        if url.lower().endswith(('.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx')):
-            return self._scrape_document(url)
-        else:
-            # Try browser-based scraping with fallback to HTTP
-            try:
-                # Start with browser-based scraping for JS-heavy sites
-                content, metadata = self._scrape_with_browser(url, user_agent)
-                
-                # Check if content is empty or minimal
-                if not content or len(content.strip()) < 100:
-                    self.logger.info("Browser scraping returned minimal content, trying HTTP fallback")
+        # Try browser-based scraping first, with HTTP as fallback
+        try:
+            content, metadata = self._scrape_with_browser(url, user_agent)
+            
+            # If we got empty content, try HTTP method as well
+            if not content.strip() and "text/html" in metadata.get("content_type", ""):
+                try:
                     http_content, http_metadata = self._scrape_with_http(url, user_agent)
                     
-                    # Use HTTP result if it's better
+                    # Use HTTP result if it has more content
                     if len(http_content.strip()) > len(content.strip()):
                         return http_content, http_metadata
-                
-                return content, metadata
-            except Exception as e:
-                self.logger.warning(f"Browser scraping failed: {str(e)}, trying HTTP fallback")
-                try:
-                    return self._scrape_with_http(url, user_agent)
-                except Exception as http_e:
-                    self.logger.error(f"All scraping methods failed for {url}: {str(http_e)}")
-                    return "", {"status": "error", "url": url, "error": str(http_e)}
+                except Exception:
+                    pass  # Ignore HTTP errors if browser scraping worked
+            
+            return content, metadata
+        except Exception as e:
+            self.logger.warning(f"Browser scraping failed: {str(e)}, trying HTTP fallback")
+            try:
+                return self._scrape_with_http(url, user_agent)
+            except Exception as http_e:
+                self.logger.error(f"All scraping methods failed for {url}: {str(http_e)}")
+                return "", {"status": "error", "url": url, "error": str(http_e)}
     
     def _scrape_with_browser(self, url: str, user_agent: str) -> Tuple[str, Dict[str, Any]]:
         """
@@ -558,6 +657,189 @@ class UnifiedScraper:
             # Close the page
             page.close()
             
+    def _is_likely_pdf_url(self, url: str) -> bool:
+        """
+        Check if a URL is likely to point to a PDF.
+        
+        Args:
+            url: URL to check
+            
+        Returns:
+            True if likely a PDF, False otherwise
+        """
+        # Direct check for PDF extension
+        if url.lower().endswith('.pdf'):
+            return True
+            
+        # Check URL path
+        parsed_url = urlparse(url)
+        path = parsed_url.path.lower()
+        query = parsed_url.query.lower()
+        
+        # Check for PDF in path or query
+        if '.pdf' in path or 'pdf=' in query or 'format=pdf' in query:
+            return True
+            
+        return False
+        
+    def _scrape_pdf(self, url: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Extract text from a PDF URL.
+        
+        Args:
+            url: URL of the PDF
+            
+        Returns:
+            Tuple containing (text, metadata)
+        """
+        self.logger.info(f"Extracting PDF content from {url}")
+        
+        # Initialize metadata
+        metadata = {
+            "url": url,
+            "content_type": "application/pdf",
+            "status": "pending",
+            "scraping_method": "pdf_extractor"
+        }
+        
+        # Make sure we have a PDF extractor
+        if not self.pdf_extractor:
+            metadata["status"] = "error"
+            metadata["error"] = "PDF extraction not available"
+            return "", metadata
+        
+        try:
+            # Extract text from PDF
+            result = self.pdf_extractor.extract_from_url(url)
+            
+            if result["success"]:
+                metadata["status"] = "success"
+                metadata["engine_used"] = result["engine_used"]
+                metadata["processing_time"] = result["processing_time"]
+                metadata["title"] = self._extract_pdf_title(result["text"])
+                return result["text"], metadata
+            else:
+                metadata["status"] = "error"
+                metadata["error"] = result["error"]
+                return "", metadata
+                
+        except Exception as e:
+            metadata["status"] = "error"
+            metadata["error"] = str(e)
+            return "", metadata
+    
+    def _extract_pdf_title(self, text: str) -> str:
+        """
+        Attempt to extract a title from PDF text.
+        
+        Args:
+            text: Extracted PDF text
+            
+        Returns:
+            Extracted title or default title
+        """
+        if not text:
+            return "Untitled PDF"
+            
+        # Try to get the first non-empty line as the title
+        lines = text.strip().split('\n')
+        for line in lines:
+            clean_line = line.strip()
+            if clean_line and len(clean_line) > 3 and len(clean_line) < 100:
+                return clean_line.replace('\r', '')
+                
+        # Fallback to first chunk of text
+        first_chunk = text[:100].replace('\n', ' ').strip()
+        if first_chunk:
+            return first_chunk + "..."
+            
+        return "Untitled PDF"
+    
+    def _scrape_wikipedia(self, url: str, user_agent: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Special method for Wikipedia scraping to handle their anti-bot measures.
+        
+        Args:
+            url: Wikipedia URL to scrape
+            user_agent: User agent to use
+            
+        Returns:
+            Tuple containing (content, metadata)
+        """
+        self.logger.info(f"Using specialized Wikipedia scraper for {url}")
+        
+        # Initialize metadata
+        metadata = {
+            "url": url,
+            "content_type": "text/html",
+            "status": "success",
+            "scraping_method": "wikipedia_specialized",
+            "title": "Wikipedia Article"
+        }
+        
+        try:
+            # Use the standard URL (mobile version was causing 404 errors)
+            target_url = url
+            
+            # Advanced headers specific for Wikipedia
+            headers = {
+                'User-Agent': user_agent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Cache-Control': 'max-age=0',
+                'TE': 'Trailers',
+                'DNT': '1'
+            }
+            
+            # Use direct requests with appropriate headers
+            response = requests.get(
+                target_url, 
+                headers=headers, 
+                timeout=30,
+                verify=self.verify_ssl
+            )
+            
+            # Check if we got a valid response
+            response.raise_for_status()
+            
+            # Process the content
+            html_content = response.text
+            
+            # Parse with BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Get metadata
+            title_tag = soup.find('title')
+            if title_tag:
+                metadata["title"] = title_tag.get_text()
+            
+            # Remove script and style elements
+            for script in soup(["script", "style", "nav", "footer", "header"]):
+                script.decompose()
+                
+            # Get article content - main content is typically in div with id="content" or "mw-content-text"
+            content_div = soup.find('div', id='content') or soup.find('div', id='mw-content-text') or soup.find('div', class_='mw-parser-output')
+            
+            if content_div:
+                content = content_div.get_text(separator=" ", strip=True)
+            else:
+                # Fallback to the whole body
+                content = soup.get_text(separator=" ", strip=True)
+                
+            # Clean whitespace
+            content = re.sub(r'\s+', ' ', content).strip()
+            
+            return content, metadata
+            
+        except Exception as e:
+            self.logger.error(f"Wikipedia scraping error: {str(e)}")
+            metadata["status"] = "error"
+            metadata["error"] = str(e)
+            return "", metadata
+    
     def _scrape_with_http(self, url: str, user_agent: str) -> Tuple[str, Dict[str, Any]]:
         """
         Scrape a URL using HTTP requests.
@@ -576,8 +858,13 @@ class UnifiedScraper:
             "Accept-Encoding": "gzip, deflate, br",
             "Connection": "keep-alive",
             "Upgrade-Insecure-Requests": "1",
-            "Cache-Control": "max-age=0"
+            "DNT": "1",  # Do Not Track
+            "Cache-Control": "max-age=0",
+            "Pragma": "no-cache"
         }
+        
+        # Configure SSL verification
+        verify = certifi.where() if self.verify_ssl else False
         
         # Initialize metadata
         metadata = {
@@ -600,7 +887,7 @@ class UnifiedScraper:
                         headers=headers, 
                         proxies=proxies, 
                         timeout=15,
-                        verify=False  # Allow self-signed certificates
+                        verify=verify  # Allow self-signed certificates
                     )
                     
                     break  # Break if successful
@@ -648,7 +935,7 @@ class UnifiedScraper:
                         script.decompose()
                     content = main_content.get_text(separator=" ", strip=True)
                 else:
-                    # Fallback to full page with cleaning
+                    # Fallback to the whole body
                     for script in soup(["script", "style", "nav", "footer", "header", "aside"]):
                         script.decompose()
                     content = soup.get_text(separator=" ", strip=True)
@@ -664,9 +951,11 @@ class UnifiedScraper:
                 with tempfile.NamedTemporaryFile(delete=False) as temp_file:
                     temp_file.write(response.content)
                     temp_path = temp_file.name
-                    self.temp_files.append(temp_path)
-                    metadata["temp_file"] = temp_path
-                    
+                
+                # Track the temporary file
+                self.temp_files.append(temp_path)
+                metadata["temp_file"] = temp_path
+                
                 return "", metadata
                 
             # Handle plain text
@@ -792,13 +1081,39 @@ class UnifiedScraper:
         # Use a smaller number of workers than requested to avoid rate limiting
         actual_workers = min(max_workers, len(urls))
         
+        # Group URLs by type for specialized handling
+        wikipedia_urls = []
+        pdf_urls = []
+        regular_urls = []
+        
+        for url in urls:
+            if 'wikipedia.org' in url:
+                wikipedia_urls.append(url)
+            elif self.pdf_extractor and self._is_likely_pdf_url(url):
+                pdf_urls.append(url)
+            else:
+                regular_urls.append(url)
+        
         with concurrent.futures.ThreadPoolExecutor(max_workers=actual_workers) as executor:
-            # Submit all scraping tasks
-            future_to_url = {executor.submit(self.scrape, url): url for url in urls}
+            # Start with specialized scrapers
+            futures = []
+            
+            # Handle Wikipedia URLs with specialized method
+            for url in wikipedia_urls:
+                user_agent = self._get_random_user_agent()
+                futures.append((executor.submit(self._scrape_wikipedia, url, user_agent), url))
+            
+            # Handle PDF URLs
+            for url in pdf_urls:
+                futures.append((executor.submit(self._scrape_pdf, url), url))
+            
+            # Handle regular URLs with HTTP method
+            for url in regular_urls:
+                user_agent = self._get_random_user_agent()
+                futures.append((executor.submit(self._scrape_with_http, url, user_agent), url))
             
             # Process results as they complete
-            for future in concurrent.futures.as_completed(future_to_url):
-                url = future_to_url[future]
+            for future, url in futures:
                 try:
                     content, metadata = future.result()
                     results.append((content, metadata))
@@ -856,8 +1171,12 @@ class UnifiedScraper:
             # Make the request with retries
             for attempt in range(self.max_retries):
                 try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(url, headers=headers, proxy=proxy, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                    async with aiohttp.ClientSession(
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                        cookie_jar=aiohttp.CookieJar(unsafe=True)
+                    ) as session:
+                        async with session.get(url, proxy=proxy, ssl=False) as response:
                             # Update metadata
                             metadata["status_code"] = response.status
                             metadata["content_type"] = response.headers.get("Content-Type", "text/html")
@@ -920,6 +1239,7 @@ class UnifiedScraper:
         semaphore = asyncio.Semaphore(max_concurrent)
         
         async def bounded_scrape(url):
+            """Helper function to apply semaphore to async_scrape"""
             async with semaphore:
                 return await self.async_scrape(url)
         
@@ -966,6 +1286,14 @@ class UnifiedScraper:
                 self.logger.error(f"Error removing temporary file {temp_file}: {str(e)}")
         
         self.temp_files = []
+        
+        # Clean up PDF extractor if available
+        if self.pdf_extractor:
+            try:
+                self.pdf_extractor.cleanup()
+            except Exception as e:
+                self.logger.error(f"Error cleaning up PDF extractor: {str(e)}")
+                
         self.logger.info("UnifiedScraper closed")
     
     def __enter__(self):
@@ -975,48 +1303,257 @@ class UnifiedScraper:
         self.close()
 
 
-# Example usage when run directly
+# Comprehensive example usage for UnifiedScraper
 if __name__ == "__main__":
+    import sys
+    import os
+    import pandas as pd
+    from datetime import datetime
+    from pathlib import Path
+    
+    # Add project root to Python path if necessary
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    if project_root not in sys.path:
+        sys.path.append(project_root)
+    
+    # Try to import other components from the Agentic Researcher project
+    try:
+        from src.utils.document_utils import extract_metadata, process_document
+        from src.utils.file_utils import ensure_dir
+        document_utils_available = True
+    except ImportError:
+        document_utils_available = False
+        print("Warning: document_utils module not available for integration example")
+    
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Create scraper with robots.txt bypassed for research purposes
-    scraper = UnifiedScraper(headless=True, honor_robots_txt=False)
+    # Create output directory for example results
+    output_dir = Path(os.path.join(project_root, "example_results", f"scraper_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}"))
+    ensure_dir(output_dir)
+    
+    print("\n" + "=" * 80)
+    print("UNIFIED SCRAPER - COMPREHENSIVE EXAMPLE")
+    print("=" * 80)
+    
+    print("\nInitializing UnifiedScraper with various configurations...")
+    print("\n1. Basic Configuration")
+    scraper = UnifiedScraper(
+        headless=True,  # Run browser in headless mode
+        use_proxies=False,  # Don't use proxies for this example
+        rotate_user_agents=True,  # Rotate user agents for anti-detection
+        min_delay=1.0,  # Wait at least 1 second between requests
+        max_delay=3.0,  # Maximum delay (important for rate-limiting)
+        honor_robots_txt=False,  # Set to True in production for ethical scraping
+        use_stealth_mode=True,  # Enable stealth mode to avoid detection
+        verify_ssl=True  # Verify SSL certificates
+    )
     
     try:
-        # URLs to test
-        test_urls = [
-            "https://en.wikipedia.org/wiki/Volatility_Index",
-            "https://www.cnbc.com/markets/",
-            "https://github.com/features"
-        ]
+        print("\nDemonstrating different URL types and scraping methods:")
         
-        # Single URL
-        url = test_urls[0]
-        print(f"\nScraping {url}...")
-        content, metadata = scraper.scrape(url)
+        # 1. DEMONSTRATION: Different types of URLs to showcase various capabilities
+        test_urls = {
+            "wikipedia": "https://en.wikipedia.org/wiki/Natural_language_processing",
+            "http_friendly": "https://news.ycombinator.com/",
+            "browser_required": "https://www.reuters.com/technology/",
+            "pdf_document": "https://arxiv.org/pdf/2303.08774.pdf"  # ML research paper
+        }
         
-        print(f"Title: {metadata.get('title')}")
-        print(f"Status: {metadata.get('status')}")
-        print(f"Content Type: {metadata.get('content_type')}")
-        print(f"Content Length: {len(content)} characters")
-        print(f"Preview: {content[:200]}...")
+        # Example 1: Individual URL scraping with method selection
+        print("\n" + "-" * 80)
+        print("EXAMPLE 1: SPECIALIZED WIKIPEDIA SCRAPING")
+        print("-" * 80)
+        wiki_url = test_urls["wikipedia"]
+        print(f"Scraping Wikipedia article: {wiki_url}")
+        wiki_content, wiki_metadata = scraper.scrape(wiki_url)
         
-        # Multiple URLs
-        print("\nScraping multiple URLs...")
-        results = scraper.scrape_multiple(test_urls)
+        # Display Wikipedia-specific information
+        print(f"Title: {wiki_metadata.get('title')}")
+        print(f"Status: {wiki_metadata.get('status')}")
+        print(f"Scraping Method: {wiki_metadata.get('scraping_method')}")
+        print(f"Content Length: {len(wiki_content)} characters")
+        print(f"Preview: {wiki_content[:200]}...")
         
-        for i, (content, metadata) in enumerate(results):
-            print(f"\nResult {i+1}: {metadata.get('url')}")
-            print(f"Title: {metadata.get('title')}")
-            print(f"Status: {metadata.get('status')}")
-            print(f"Content Length: {len(content)} characters")
+        # Save Wikipedia content to file
+        wiki_output_path = output_dir / "wikipedia_nlp.txt"
+        with open(wiki_output_path, "w", encoding="utf-8") as f:
+            f.write(f"Title: {wiki_metadata.get('title')}\n\n")
+            f.write(wiki_content)
+        print(f"Saved Wikipedia content to: {wiki_output_path}")
+        
+        # Example 2: HTTP-based scraping (faster for simple sites)
+        print("\n" + "-" * 80)
+        print("EXAMPLE 2: HTTP-BASED SCRAPING")
+        print("-" * 80)
+        http_url = test_urls["http_friendly"]
+        print(f"Scraping with HTTP requests: {http_url}")
+        
+        # Force HTTP-based scraping by using internal method directly
+        user_agent = scraper._get_random_user_agent()
+        http_content, http_metadata = scraper._scrape_with_http(http_url, user_agent)
+        
+        print(f"Title: {http_metadata.get('title')}")
+        print(f"Status: {http_metadata.get('status')}")
+        print(f"Content Type: {http_metadata.get('content_type')}")
+        print(f"Content Length: {len(http_content)} characters")
+        print(f"Preview: {http_content[:200]}...")
+        
+        # Example 3: Browser-based scraping (for JavaScript-heavy sites)
+        print("\n" + "-" * 80)
+        print("EXAMPLE 3: BROWSER-BASED SCRAPING")
+        print("-" * 80)
+        browser_url = test_urls["browser_required"]
+        print(f"Scraping with Playwright browser: {browser_url}")
+        
+        # Force browser-based scraping by using internal method directly
+        user_agent = scraper._get_random_user_agent()
+        browser_content, browser_metadata = scraper._scrape_with_browser(browser_url, user_agent)
+        
+        print(f"Title: {browser_metadata.get('title')}")
+        print(f"Status: {browser_metadata.get('status')}")
+        print(f"JavaScript-rendered: Yes")
+        print(f"Content Length: {len(browser_content)} characters")
+        print(f"Preview: {browser_content[:200]}...")
+        
+        # Example 4: PDF extraction (if available)
+        if PDF_EXTRACTOR_AVAILABLE:
+            print("\n" + "-" * 80)
+            print("EXAMPLE 4: PDF EXTRACTION")
+            print("-" * 80)
+            pdf_url = test_urls["pdf_document"]
+            print(f"Extracting content from PDF: {pdf_url}")
             
+            try:
+                pdf_content, pdf_metadata = scraper._scrape_pdf(pdf_url)
+                
+                print(f"Title: {pdf_metadata.get('title')}")
+                print(f"Status: {pdf_metadata.get('status')}")
+                print(f"Content Type: {pdf_metadata.get('content_type')}")
+                print(f"Content Length: {len(pdf_content)} characters")
+                print(f"Preview: {pdf_content[:200]}...")
+                
+                # Save PDF text to file
+                pdf_output_path = output_dir / "arxiv_paper.txt"
+                with open(pdf_output_path, "w", encoding="utf-8") as f:
+                    f.write(f"Title: {pdf_metadata.get('title')}\n\n")
+                    f.write(pdf_content)
+                print(f"Saved PDF content to: {pdf_output_path}")
+                
+            except Exception as e:
+                print(f"Error extracting PDF (this is expected if PDF extraction libraries are not installed): {str(e)}")
+        else:
+            print("\nSkipping PDF extraction example as PDF_EXTRACTOR_AVAILABLE is False")
+        
+        # Example 5: Parallel scraping of multiple URLs
+        print("\n" + "-" * 80)
+        print("EXAMPLE 5: PARALLEL SCRAPING")
+        print("-" * 80)
+        print("Scraping multiple URLs in parallel (excluding PDF for this example)...")
+        
+        parallel_urls = [v for k, v in test_urls.items() if k != "pdf_document"]
+        print(f"URLs to scrape: {len(parallel_urls)}")
+        
+        # Use parallel scraping
+        start_time = time.time()
+        results = scraper.scrape_multiple(parallel_urls)
+        duration = time.time() - start_time
+        
+        print(f"Completed parallel scraping in {duration:.2f} seconds")
+        
+        # Create a DataFrame to display results
+        results_data = []
+        for i, (content, metadata) in enumerate(results):
+            url = metadata.get('url', parallel_urls[i])
+            results_data.append({
+                "url": url,
+                "title": metadata.get('title', 'Unknown'),
+                "status": metadata.get('status', 'Unknown'),
+                "method": metadata.get('scraping_method', 'Unknown'),
+                "content_length": len(content)
+            })
+        
+        results_df = pd.DataFrame(results_data)
+        print("\nParallel scraping results:")
+        print(results_df.to_string(index=False))
+        
+        # Example 6: Integration with document_utils (if available)
+        if document_utils_available:
+            print("\n" + "-" * 80)
+            print("EXAMPLE 6: INTEGRATION WITH DOCUMENT UTILS")
+            print("-" * 80)
+            
+            # Select a content and metadata pair to process
+            integration_content, integration_metadata = results[0]
+            url = integration_metadata.get('url')
+            print(f"Processing content from {url} with document_utils")
+            
+            # Extract additional metadata
+            enhanced_metadata = extract_metadata(integration_content, url)
+            print("\nEnhanced metadata:")
+            for key, value in enhanced_metadata.items():
+                print(f"  {key}: {value}")
+            
+            # Process document (would normally chunk and vectorize)
+            processed_doc = process_document(
+                text=integration_content,
+                metadata=enhanced_metadata,
+                chunk_size=1000,  # Example chunk size
+                chunk_overlap=200,  # Example overlap
+                vectorize=False  # Don't vectorize in this example
+            )
+            
+            print(f"\nProcessed document into {len(processed_doc['chunks'])} chunks")
+            print(f"First chunk preview: {processed_doc['chunks'][0][:100]}...")
+            
+            # Save processed document to file
+            doc_output_path = output_dir / "processed_document.json"
+            with open(doc_output_path, "w", encoding="utf-8") as f:
+                json.dump(processed_doc, f, indent=2)
+            print(f"Saved processed document to: {doc_output_path}")
+        
+        # Example 7: Error handling and retry demonstration
+        print("\n" + "-" * 80)
+        print("EXAMPLE 7: ERROR HANDLING & RETRY LOGIC")
+        print("-" * 80)
+        
+        # Intentionally invalid URL to demonstrate error handling
+        invalid_url = "https://this-domain-does-not-exist-123456789.com"
+        print(f"Attempting to scrape invalid URL: {invalid_url}")
+        
+        try:
+            invalid_content, invalid_metadata = scraper.scrape(invalid_url)
+            print(f"Result: {invalid_metadata.get('status')}")
+            print(f"Error: {invalid_metadata.get('error')}")
+        except Exception as e:
+            print(f"Caught exception: {str(e)}")
+            print("This demonstrates the scraper's error handling capability")
+        
+        print("\n" + "=" * 80)
+        print("SUMMARY OF CAPABILITIES DEMONSTRATED:")
+        print("=" * 80)
+        print("1. Wikipedia-specific scraping (optimized for Wikipedia's structure)")
+        print("2. HTTP-based scraping (fast for simple websites)")
+        print("3. Browser-based scraping with Playwright (for JavaScript-heavy sites)")
+        if PDF_EXTRACTOR_AVAILABLE:
+            print("4. PDF extraction capabilities")
+        print("5. Parallel scraping of multiple URLs")
+        if document_utils_available:
+            print("6. Integration with document processing pipeline")
+        print("7. Error handling and retry mechanisms")
+        print("8. User-agent rotation for avoiding detection")
+        print("9. Stealth mode browser configuration")
+        print("\nAll output files saved to: " + str(output_dir))
+        
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"\nUnexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
     finally:
-        # Clean up
+        # Always clean up resources
+        print("\nCleaning up resources...")
         scraper.close()
+        print("UnifiedScraper closed successfully")

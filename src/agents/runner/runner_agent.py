@@ -17,7 +17,6 @@ from typing import Dict, List, Any, Optional, Union
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
-from src.utils.config import config
 from src.db.sqlite_manager import SQLiteManager
 from src.utils.openai_client import AzureOpenAIClient
 
